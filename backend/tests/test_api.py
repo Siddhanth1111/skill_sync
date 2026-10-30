@@ -107,3 +107,19 @@ def test_deleting_job_cascades(client_factory, tmp_path):
         db.delete(db.get(Job, job["id"]))
         db.commit()
         assert db.query(Candidate).count() == db.query(Chunk).count() == db.query(Requirement).count() == 0
+
+
+def test_candidate_detail_and_student_upload(client_factory, tmp_path):
+    c = client_factory(DownLLM())
+    f = tmp_path / "s.pdf"
+    make_pdf(f, RESUME)
+    r = c.post("/student/resume", files={"file": ("s.pdf", f.read_bytes(), "application/pdf")})
+    assert r.status_code == 202
+    cid = r.json()["id"]
+    c.app.state.pool.wait_all()
+    d = c.get("/candidates/%d" % cid).json()
+    assert d["status"] == "done" and d["job_id"] is None
+    assert d["profile"]["email"] == "jane.doe@example.com" and d["chunks"] and d["raw_text"]
+    assert c.get("/candidates/999").status_code == 404
+    bad = c.post("/student/resume", files={"file": ("x.txt", b"hi", "text/plain")})
+    assert bad.json()["status"] == "failed"

@@ -8,3 +8,5 @@ data/
 *.pdf
 *.docx
 !backend/tests/fixtures/*.keep
+node_modules/
+dist/

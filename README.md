@@ -1,8 +1,8 @@
-# SkillSync backend: pipeline stages 1 to 5
+# SkillSync: pipeline stages 1 to 5 (backend + quick UI)
 
 SkillSync is an auditable candidate-ranking assistant. This repository currently holds the **backend for pipeline
-stages 1 to 5** of *SkillSync: Final Pipeline and Build Specification* (the PDF in this folder). The frontend and
-stages 6 onward are not built yet.
+stages 1 to 5** of *SkillSync: Final Pipeline and Build Specification* (the PDF in this folder), plus a **quick
+React UI** (no login, no roles) to view what those stages produce. Stages 6 onward are not built yet.
 
 | Stage | What it does | Status |
 |---|---|---|
@@ -19,9 +19,18 @@ stages 6 onward are not built yet.
 cd backend
 python3 -m venv ../.venv && source ../.venv/bin/activate
 pip install -r requirements.txt
-pytest                                           # 49 tests, no Ollama or Tesseract needed
+pytest                                           # 50 tests, no Ollama or Tesseract needed
 uvicorn app.main:create_app --factory --reload   # API docs at http://localhost:8000/docs
 ```
+
+Then, in a second terminal, start the UI:
+
+```bash
+cd frontend
+npm install
+npm run dev                                      # http://localhost:5173
+```
+
 
 Optional, for real runs: `ollama pull llama3.1:8b` and install Tesseract (`brew install tesseract`). Without Ollama
 the system still works, using the rule extractors. Without Tesseract, scanned PDFs fail with a clear reason and the
@@ -41,7 +50,24 @@ for the real setup.
 | `PATCH /jobs/{id}/requirements` | Edit requirement text, importance (must/should/nice) or weight |
 | `POST /jobs/{id}/resumes` (multipart `files`) | Stage 1: validate and queue files. Returns 202 and a row per file |
 | `GET /jobs/{id}/status` | Per-file status (queued, parsing, done, failed + reason) and counts. The UI polls this |
+| `GET /candidates/{id}` | Parsed profile, parse confidence, labelled chunks and extracted text for one resume |
+| `POST /student/resume` (multipart `file`) | Student mode: one resume with no job attached (`job_id` null) |
 | `GET /health` | Liveness check |
+
+## Quick UI (`frontend/`)
+
+React (JavaScript) with Vite and plain CSS, no extra libraries. No login or roles: the two tabs at the top are just
+two views. Vite proxies `/api/*` to the backend on port 8000 (set `VITE_BACKEND_URL` to change it), so no CORS setup
+is needed. It only shows what stages 1 to 5 produce; there are no scores or rankings yet.
+
+- **Recruiter tab:** paste a job description, then see and edit the extracted requirements (text, must/should/nice,
+  weight) and save. Drag and drop resumes, watch per-file status update live (queued, parsing, done, failed with
+  reason), and click View on any finished file to see its profile, parse-confidence warning, roles, education and
+  the labelled chunks.
+- **Student tab:** upload one resume and see the same parsed view. Paste one or more job descriptions and see their
+  requirements (read-only). Matching, roadmap and what-if come with later stages.
+- Code: `src/pages/` (Recruiter, Student), `src/components/` (requirements table, candidate view, file drop),
+  `src/api.js` (all backend calls), `src/usePolling.js`.
 
 ## How it works, stage by stage
 
@@ -113,7 +139,7 @@ Deliberate differences from the spec's table list, so teammates are not surprise
 - `chunks` has no `embedding` column yet. It is added in Stage 6, with the dimension taken from the chosen model.
 - `users`, `scores`, `feedback`, `audit_runs`, `gold_labels` and `experiment_runs` are later phases.
 
-## Tests (`backend/tests/`, 49 tests)
+## Tests (`backend/tests/`, 50 tests)
 
 All run without Ollama or Tesseract: the LLM is a scripted mock and OCR is injected. PDFs and DOCX files are generated
 in the test, so no resume files are in the repo.
@@ -128,8 +154,9 @@ in the test, so no resume files are in the repo.
 
 ## What has and has not been verified
 
-- Verified: all 49 tests pass (repeated runs, so no flakiness), and a live `uvicorn` smoke test of `/health` and
-  `POST /jobs` with Ollama down used the rule fallback correctly.
+- Verified: all 50 tests pass (repeated runs, so no flakiness). With both servers running and Ollama down, the
+  whole flow worked through the Vite proxy (create job, upload PDF, status, candidate detail, student upload) and
+  `npm run build` succeeds. The UI was **not** checked by eye in a browser, so expect small visual rough edges.
 - **Not verified:** behaviour against a real Llama 3.1 8B model, and real Tesseract OCR. Both need to be tried on
   real or synthetic scanned resumes. The prompts in `services/extraction.py` may need tuning once that is done.
 - Parse and extraction quality has not been measured. Per the spec, no accuracy numbers are claimed.
@@ -139,7 +166,7 @@ in the test, so no resume files are in the repo.
 - The skill taxonomy (`services/taxonomy.py`) is small and deliberately leaves out ambiguous names (R, C, Go).
 - Rule-based name and role extraction are heuristics, used only when the LLM fails.
 - Uploaded files are read into memory (up to 10 MB each) before being written to temp storage.
-- No authentication, role checks or per-user filtering yet (Phase 3). Do not expose this API publicly as is.
+- No authentication, role checks (the UI tabs are not access control) or per-user filtering yet (Phase 3). Do not expose this API publicly as is.
 - Passworded PDFs are rejected, not unlocked.
 
 ## Next steps

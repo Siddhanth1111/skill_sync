@@ -4,7 +4,7 @@ from fastapi import FastAPI
 
 from .config import Settings, get_settings
 from .db import make_session_factory
-from .routers import jobs, resumes
+from .routers import candidates, jobs, resumes
 from .services.ingest import IngestPool
 from .services.llm import LLMClient, OllamaClient
 
@@ -19,6 +19,7 @@ def create_app(settings: Optional[Settings] = None, llm: Optional[LLMClient] = N
     app.state.pool = IngestPool(app.state.session_factory, settings, app.state.llm)
     app.include_router(jobs.router)
     app.include_router(resumes.router)
+    app.include_router(candidates.router)
 
     @app.get("/health")
     def health():

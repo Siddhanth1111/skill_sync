@@ -118,3 +118,19 @@ class JobStatus(BaseModel):
     total: int
     counts: Dict[str, int]
     files: List[CandidateStatus]
+
+
+class ChunkOut(BaseModel):
+    id: int
+    idx: int
+    section: str
+    text: str
+
+    model_config = {"from_attributes": True}
+
+
+class CandidateDetail(CandidateStatus):
+    job_id: Optional[int] = None
+    profile: Optional[Dict[str, Any]] = None
+    raw_text: Optional[str] = None
+    chunks: List[ChunkOut] = []
