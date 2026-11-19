@@ -27,9 +27,9 @@ const json = (method, body) => ({
 
 export const api = {
   health: () => request('/health'),
-  listJobs: () => request('/jobs'),
+  listJobs: (mode) => request('/jobs' + (mode ? `?mode=${mode}` : '')),
   getJob: (id) => request(`/jobs/${id}`),
-  createJob: (title, text) => request('/jobs', json('POST', { title, text })),
+  createJob: (title, text, mode = 'recruiter') => request('/jobs', json('POST', { title, text, mode })),
   patchRequirements: (id, patches) => request(`/jobs/${id}/requirements`, json('PATCH', patches)),
   uploadResumes: (jobId, files) => {
     const form = new FormData()
@@ -43,4 +43,25 @@ export const api = {
     form.append('file', file)
     return request('/student/resume', { method: 'POST', body: form })
   },
+  // Stages 7-12: scoring, matrix, explanation
+  startScoring: (jobId) => request(`/jobs/${jobId}/score`, { method: 'POST' }),
+  scoringStatus: (jobId) => request(`/jobs/${jobId}/score/status`),
+  matrix: (jobId) => request(`/jobs/${jobId}/matrix`),
+  ranking: (jobId) => request(`/jobs/${jobId}/ranking`),
+  explanation: (candidateId) => request(`/candidates/${candidateId}/explanation`),
+  // Stage 13: learning
+  rate: (candidateId, rating) => request(`/candidates/${candidateId}/feedback`, json('POST', { rating })),
+  model: (jobId) => request(`/jobs/${jobId}/model`),
+  trainModel: (jobId) => request(`/jobs/${jobId}/model/train`, { method: 'POST' }),
+  // Stage 14: fairness
+  auditBlind: (jobId) => request(`/jobs/${jobId}/audit/blind`, { method: 'POST' }),
+  auditCounterfactual: (jobId) => request(`/jobs/${jobId}/audit/counterfactual`, { method: 'POST' }),
+  auditImpact: (jobId, groups, topN) => request(`/jobs/${jobId}/audit/impact`, json('POST', { groups, top_n: topN })),
+  auditWeat: (jobId, groups) => request(`/jobs/${jobId}/audit/weat`, json('POST', { groups })),
+  auditHistory: (jobId) => request(`/jobs/${jobId}/audit/history`),
+  // Stage 15: student mode
+  studentMatch: (candidateId, jobIds) => request('/student/match', json('POST', { candidate_id: candidateId, job_ids: jobIds })),
+  studentRoadmap: (candidateId, jobId) => request(`/student/roadmap?candidate_id=${candidateId}&job_id=${jobId}`),
+  studentWhatIf: (candidateId, jobId, addition) =>
+    request('/student/whatif', json('POST', { candidate_id: candidateId, job_id: jobId, addition })),
 }

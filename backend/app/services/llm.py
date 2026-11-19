@@ -48,10 +48,26 @@ class OllamaClient:
             raise LLMUnavailable("%s: %s" % (type(exc).__name__, exc))
 
 
+def require_all_properties(schema: dict) -> dict:
+    """Pydantic marks fields that have defaults as optional, and Ollama's constrained decoding then lets the model
+    skip them (it returned resumes with no skills or roles). List every property as required so none is dropped."""
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("type") == "object" and "properties" in node:
+                node["required"] = list(node["properties"])
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+    walk(schema)
+    return schema
+
+
 def generate_validated(client: LLMClient, system: str, prompt: str, model_cls: Type[T], max_retries: int) -> T:
     """Ask for JSON matching model_cls. On a validation failure, feed the error back and retry
     (up to max_retries extra attempts). LLMUnavailable propagates immediately."""
-    schema = model_cls.model_json_schema()
+    schema = require_all_properties(model_cls.model_json_schema())
     messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
     last_error = "no attempt made"
     for _ in range(max_retries + 1):

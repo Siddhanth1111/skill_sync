@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from ..config import Settings
 from ..db import Candidate, Chunk
 from .chunking import chunk_resume
+from .embeddings import embed_chunks
 from .extraction import extract_profile
 from .llm import LLMClient
 from .parsing import ParseError, extract_text, ocr_pdf_page, parse_confidence
@@ -25,6 +26,7 @@ def process_candidate(
     settings: Settings,
     llm: Optional[LLMClient],
     ocr_page: Callable = ocr_pdf_page,
+    embedder=None,
 ) -> None:
     """Run Stages 2-5 for one file. Never raises: any failure is stored on the row so the batch continues.
     The temporary file is always deleted afterwards."""
@@ -38,12 +40,18 @@ def process_candidate(
             profile = extract_profile(doc.text, llm, settings)                # Stage 3
             chunks = chunk_resume(doc.text, settings.chunk_max_chars)         # Stage 5
 
+            # Stage 6 runs BEFORE any row is modified: the first embedding call can take minutes (model download),
+            # and a half-written transaction would hold the database write lock for all that time.
+            rows = [Chunk(idx=c.idx, section=c.section, text=c.text) for c in chunks]
+            if embedder is not None:
+                embed_chunks(rows, embedder)
+
             cand.raw_text = doc.text
             cand.needs_ocr = doc.ocr_used
             cand.parse_confidence = parse_confidence(doc, settings)
             cand.profile = profile.model_dump()
             cand.source = profile.source
-            cand.chunks = [Chunk(idx=c.idx, section=c.section, text=c.text) for c in chunks]
+            cand.chunks = rows
             cand.status, cand.error = "done", None
         except ParseError as exc:
             db.rollback()
@@ -55,29 +63,40 @@ def process_candidate(
             cand = db.get(Candidate, candidate_id)
             cand.status, cand.error = "failed", "internal error (%s)" % type(exc).__name__
         finally:
-            db.commit()
-            folder = os.path.dirname(path)
-            if os.path.basename(folder).startswith("skillsync_"):  # the private folder made by save_temp
-                shutil.rmtree(folder, ignore_errors=True)
-            else:
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
+            try:
+                db.commit()
+            finally:  # the upload must be deleted even if the final commit fails
+                folder = os.path.dirname(path)
+                if os.path.basename(folder).startswith("skillsync_"):  # the private folder made by save_temp
+                    shutil.rmtree(folder, ignore_errors=True)
+                else:
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
 
 
 class IngestPool:
     """Three worker threads by default. submit() returns immediately; the API polls candidate status."""
 
-    def __init__(self, session_factory: sessionmaker, settings: Settings, llm: Optional[LLMClient]):
-        self.session_factory, self.settings, self.llm = session_factory, settings, llm
+    def __init__(self, session_factory: sessionmaker, settings: Settings, llm: Optional[LLMClient], models=None):
+        self.session_factory, self.settings, self.llm, self.models = session_factory, settings, llm, models
         self.executor = ThreadPoolExecutor(max_workers=settings.worker_threads, thread_name_prefix="ingest")
         self._futures: List[Future] = []
 
     def submit(self, candidate_id: int, path: str) -> None:
         self._futures = [f for f in self._futures if not f.done()]
+        embedder = self.models.embedder if self.models else None
         self._futures.append(self.executor.submit(
-            process_candidate, self.session_factory, candidate_id, path, self.settings, self.llm))
+            process_candidate, self.session_factory, candidate_id, path, self.settings, self.llm,
+            ocr_pdf_page, embedder))
+
+    def submit_task(self, fn, *args) -> Future:
+        """Run any background job (e.g. a scoring run) on the same worker threads."""
+        self._futures = [f for f in self._futures if not f.done()]
+        fut = self.executor.submit(fn, *args)
+        self._futures.append(fut)
+        return fut
 
     def wait_all(self, timeout: float = 60.0) -> None:
         """Block until queued work is done (used by tests)."""

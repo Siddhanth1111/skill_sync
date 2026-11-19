@@ -27,8 +27,9 @@ export default function App() {
           {backendUp ? 'backend connected' : backendUp === false ? 'backend offline' : 'checking...'}
         </span>
       </header>
-      <p className="note">Pipeline stages 1 to 5 only: upload, text extraction, structuring, requirements, chunking.
-        Scoring and ranking are not built yet.</p>
+      <p className="note">Pipeline stages 1 to 15: upload and parsing, requirements, embeddings and retrieval, reranking, verified
+        evidence, scoring and ranking, explanations, learning from ratings, fairness audits, and student mode. A person makes
+        every hiring decision.</p>
       <main>{mode === 'recruiter' ? <Recruiter /> : <Student />}</main>
     </div>
   )

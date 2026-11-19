@@ -69,7 +69,7 @@ class DownLLM:
 
 @pytest.fixture
 def settings(tmp_path):
-    return Settings(database_url="sqlite:///%s/test.db" % tmp_path, ocr_min_chars=50)
+    return Settings(database_url="sqlite:///%s/test.db" % tmp_path, ocr_min_chars=50, model_backend="light")
 
 
 def make_pdf(path, text: str):
@@ -92,3 +92,61 @@ def client_factory(settings):
     def make(llm) -> TestClient:
         return TestClient(create_app(settings, llm))
     return make
+
+
+WEAK_RESUME = """Sam Lee
+sam.lee@example.com
+
+SKILLS
+HTML, CSS
+
+EXPERIENCE
+Intern, Shop Ltd   Jan 2024 - Jun 2024
+- Updated web pages.
+
+EDUCATION
+High school diploma, 2023
+"""
+
+MID_RESUME = """Alex Roy
+alex.roy@example.com
+
+EXPERIENCE
+Developer, Gamma Inc   Jan 2021 - Dec 2023
+- Wrote Python scripts and SQL reports.
+
+EDUCATION
+B.Sc in Mathematics, 2020
+
+SKILLS
+Python, SQL
+"""
+
+
+@pytest.fixture
+def pipeline(client_factory, tmp_path):
+    """A client with a job (rule-extracted requirements) and three parsed resumes: strong, weak, mid."""
+    c = client_factory(DownLLM())
+    job = c.post("/jobs", json={"title": "Backend", "text": JD}).json()
+    files = []
+    for name, text in (("strong.pdf", RESUME), ("weak.pdf", WEAK_RESUME), ("mid.pdf", MID_RESUME)):
+        p = tmp_path / name
+        make_pdf(p, text)
+        files.append(("files", (name, p.read_bytes(), "application/pdf")))
+    c.post("/jobs/%d/resumes" % job["id"], files=files)
+    c.app.state.pool.wait_all()
+    status = c.get("/jobs/%d/status" % job["id"]).json()
+    assert status["counts"]["done"] == 3, status
+    c.job_id = job["id"]
+    c.cands = {f["filename"]: f["id"] for f in status["files"]}
+    return c
+
+
+def run_scoring(c, job_id=None):
+    jid = job_id or c.job_id
+    r = c.post("/jobs/%d/score" % jid)
+    assert r.status_code == 202, r.text
+    c.app.state.pool.wait_all()
+    s = c.get("/jobs/%d/score/status" % jid).json()
+    assert s["status"] == "done", s
+    return s

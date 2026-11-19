@@ -1,5 +1,7 @@
 from typing import List
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -24,7 +26,7 @@ def create_job(body: JobCreate, request: Request, db: Session = Depends(get_db))
     """Stage 4: turn the pasted job description into typed, weighted requirements the recruiter can edit."""
     settings = request.app.state.settings
     extraction, source = extract_requirements(body.text, request.app.state.llm, settings)
-    job = Job(title=body.title, text=body.text, requirements_source=source)
+    job = Job(title=body.title, text=body.text, requirements_source=source, mode=body.mode)
     for i, r in enumerate(extraction.requirements):
         job.requirements.append(Requirement(
             idx=i, text=r.text, type=r.type, importance=r.importance,
@@ -38,8 +40,11 @@ def create_job(body: JobCreate, request: Request, db: Session = Depends(get_db))
 
 
 @router.get("", response_model=List[JobOut])
-def list_jobs(db: Session = Depends(get_db)):
-    return db.scalars(select(Job).order_by(Job.id.desc())).all()
+def list_jobs(mode: Optional[str] = None, db: Session = Depends(get_db)):
+    q = select(Job).order_by(Job.id.desc())
+    if mode:
+        q = q.where(Job.mode == mode)
+    return db.scalars(q).all()
 
 
 @router.get("/{job_id}", response_model=JobOut)
@@ -58,8 +63,9 @@ def patch_requirements(job_id: int, patches: List[RequirementPatch], request: Re
         req = by_id.get(p.id)
         if req is None:
             raise HTTPException(404, "requirement %d not in this job" % p.id)
-        if p.text is not None:
+        if p.text is not None and p.text.strip() != req.text:
             req.text = p.text.strip()
+            job.scores_stale = True  # stored evidence was found for the old wording; re-run scoring
         if p.importance is not None:
             req.importance = p.importance
             req.weight = default_weight(p.importance, settings)

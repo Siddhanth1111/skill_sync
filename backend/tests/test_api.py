@@ -123,3 +123,37 @@ def test_candidate_detail_and_student_upload(client_factory, tmp_path):
     assert c.get("/candidates/999").status_code == 404
     bad = c.post("/student/resume", files={"file": ("x.txt", b"hi", "text/plain")})
     assert bad.json()["status"] == "failed"
+
+
+def test_temp_file_deleted_even_if_final_commit_fails(client_factory, tmp_path, monkeypatch):
+    """Found with a real run: 'database is locked' on the last commit leaked the uploaded resume on disk."""
+    import glob, os, tempfile
+    from sqlalchemy.orm import Session
+    from app.services.ingest import process_candidate, save_temp
+    from app.db import Candidate
+    c = client_factory(DownLLM())
+    job = c.post("/jobs", json={"title": "B", "text": JD}).json()
+    f = tmp_path / "g.pdf"
+    make_pdf(f, RESUME)
+    with c.app.state.session_factory() as db:
+        cand = Candidate(job_id=job["id"], filename="g.pdf", status="queued")
+        db.add(cand)
+        db.commit()
+        cid = cand.id
+    path = save_temp(f.read_bytes(), "g.pdf")
+    real_commit = Session.commit
+    calls = {"n": 0}
+
+    def flaky(self):
+        calls["n"] += 1
+        if calls["n"] >= 2:   # the first commit (status=parsing) works, the later ones fail
+            raise RuntimeError("database is locked")
+        return real_commit(self)
+
+    monkeypatch.setattr(Session, "commit", flaky)
+    try:
+        process_candidate(c.app.state.session_factory, cid, path, c.app.state.settings, None)
+    except RuntimeError:
+        pass
+    monkeypatch.setattr(Session, "commit", real_commit)
+    assert not os.path.exists(path) and not os.path.exists(os.path.dirname(path))

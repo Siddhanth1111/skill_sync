@@ -88,3 +88,14 @@ def test_jd_invalid_type_retried_then_rules(settings):
 def test_jd_empty_llm_result_falls_back(settings):
     out, source = extract_requirements(JD, MockLLM([{"requirements": []}]), settings)
     assert source == "rules"
+
+
+def test_llm_schema_requires_every_property():
+    """Found with real Llama: optional fields were skipped entirely (empty skills and roles)."""
+    from app.schemas import JDExtraction
+    from app.services.llm import require_all_properties
+    s = require_all_properties(ProfileExtraction.model_json_schema())
+    assert set(s["required"]) == {"name", "email", "phone", "skills", "roles", "education"}
+    assert set(s["$defs"]["Role"]["required"]) == {"title", "company", "start", "end"}
+    assert set(s["$defs"]["Education"]["required"]) == {"degree", "institution", "level", "year"}
+    assert set(require_all_properties(JDExtraction.model_json_schema())["$defs"]["JDRequirement"]["required"]) >= {"skills", "years_required"}

@@ -38,6 +38,33 @@ class Settings(BaseSettings):
     # Stage 5: chunking
     chunk_max_chars: int = 500
 
+    # Models. "real" loads the HuggingFace models below (downloaded on first use, about 2 GB in total).
+    # "light" uses small deterministic stand-ins (hashing embedder, lexical reranker and entailment): no downloads,
+    # meant for tests and quick demos. Their scores say nothing about real model quality.
+    model_backend: str = "real"
+    embedding_model: str = "BAAI/bge-base-en-v1.5"  # baseline: sentence-transformers/all-MiniLM-L6-v2, ablation: BAAI/bge-m3
+    query_prefix: str = "Represent this sentence for searching relevant passages: "  # bge models only
+    reranker_model: str = "BAAI/bge-reranker-base"  # compare with BAAI/bge-reranker-v2-m3
+    nli_model: str = "microsoft/deberta-base-mnli"
+
+    # Stages 7-11: retrieval, scoring, ranking (starting values, to be tuned on development data only)
+    retrieval_top_k: int = 3
+    met_threshold: float = 0.6
+    partial_threshold: float = 0.3
+    skill_present_score: float = 0.85
+    skill_absent_cap: float = 0.45
+    must_not_met_penalty: float = 0.9
+    entailment_threshold: float = 0.5  # below this a verified quote is flagged as weak evidence
+
+    # Stage 13: learning from feedback
+    min_ratings: int = 10
+    min_ratings_each_kind: int = 3
+
+    # Stage 14: fairness
+    counterfactual_threshold_points: float = 2.0  # on a 0 to 100 scale
+    impact_ratio_threshold: float = 0.8
+    weat_permutations: int = 5000
+
 
 def get_settings() -> Settings:
     return Settings()

@@ -70,6 +70,7 @@ class JDExtraction(BaseModel):
 class JobCreate(BaseModel):
     title: str
     text: str = Field(min_length=20)
+    mode: str = Field("recruiter", pattern="^(recruiter|student)$")
 
 
 class RequirementOut(BaseModel):
@@ -97,6 +98,8 @@ class JobOut(BaseModel):
     text: str
     requirements: List[RequirementOut] = []
     requirements_source: Optional[str] = None
+    mode: str = "recruiter"
+    scores_stale: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -134,3 +137,27 @@ class CandidateDetail(CandidateStatus):
     profile: Optional[Dict[str, Any]] = None
     raw_text: Optional[str] = None
     chunks: List[ChunkOut] = []
+
+
+class FeedbackIn(BaseModel):
+    rating: str = Field(pattern="^(up|down)$")
+
+
+class ImpactIn(BaseModel):
+    groups: Dict[str, str]  # candidate id -> synthetic group label
+    top_n: int = Field(ge=1)
+
+
+class WeatIn(BaseModel):
+    groups: str = Field("gender", pattern="^(gender|origin)$")
+
+
+class MatchIn(BaseModel):
+    candidate_id: int
+    job_ids: List[int] = Field(min_length=1)
+
+
+class WhatIfIn(BaseModel):
+    candidate_id: int
+    job_id: int
+    addition: str = Field(min_length=5, max_length=2000)
