@@ -1,6 +1,7 @@
 """Pydantic schemas: the LLM output contracts and the API payloads."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -100,6 +101,9 @@ class JobOut(BaseModel):
     requirements_source: Optional[str] = None
     mode: str = "recruiter"
     scores_stale: bool = False
+    created_at: Optional[datetime] = None
+    candidate_count: int = 0
+    parsed_count: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -161,3 +165,42 @@ class WhatIfIn(BaseModel):
     candidate_id: int
     job_id: int
     addition: str = Field(min_length=5, max_length=2000)
+
+
+# ---- auth
+import re as _re
+_EMAIL = _re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class RegisterIn(BaseModel):
+    email: str = Field(max_length=254)
+    password: str = Field(min_length=8, max_length=72)  # bcrypt ignores bytes past 72
+    full_name: str = Field("", max_length=120)
+    role: str = Field("recruiter", pattern="^(recruiter|student)$")  # admins are created by the operator, never self-service
+
+    @field_validator("email")
+    @classmethod
+    def _email(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not _EMAIL.match(v):
+            raise ValueError("enter a valid email address")
+        return v
+
+
+class LoginIn(BaseModel):
+    email: str
+    password: str = Field(max_length=72)
+
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+    full_name: Optional[str] = None
+    role: str
+    model_config = {"from_attributes": True}
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserOut

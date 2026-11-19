@@ -209,11 +209,16 @@ def weat_probe(embedder, groups: str, settings: Settings, seed: int = 0) -> dict
     """WEAT (Caliskan et al.): do two name groups associate differently with pleasant vs unpleasant words in
     this embedding model? Returns effect size d and a permutation p-value."""
     label_x, X_words, label_y, Y_words = NAME_GROUPS[groups]
-    X, Y = embedder.encode_docs(X_words), embedder.encode_docs(Y_words)
-    A, B = embedder.encode_docs(PLEASANT), embedder.encode_docs(UNPLEASANT)
+    # float64: numpy's float32 matmul on macOS Accelerate emits spurious overflow warnings
+    X, Y = (np.asarray(embedder.encode_docs(w), dtype=np.float64) for w in (X_words, Y_words))
+    A, B = (np.asarray(embedder.encode_docs(w), dtype=np.float64) for w in (PLEASANT, UNPLEASANT))
 
     def assoc(W):  # s(w, A, B) for each row
-        return (W @ A.T).mean(axis=1) - (W @ B.T).mean(axis=1)
+        with np.errstate(all="ignore"):  # numpy 2.x on macOS Accelerate emits spurious FP warnings here
+            out = (W @ A.T).mean(axis=1) - (W @ B.T).mean(axis=1)
+        if not np.all(np.isfinite(out)):  # ...so check the result instead of trusting the warnings either way
+            raise ValueError("WEAT produced non-finite values; the embeddings are invalid")
+        return out
 
     sx, sy = assoc(X), assoc(Y)
     pooled = np.concatenate([X, Y])

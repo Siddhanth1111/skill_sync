@@ -1,0 +1,210 @@
+/*
+ * DSGN MIND — Token Entry Point
+ *
+ * Supported Tailwind setups:
+ *
+ * Tailwind v4:
+ * - Supported as written.
+ * - The `@theme inline` block in this file exposes the semantic token
+ *   utilities used by the system, such as `bg-primary` and `text-foreground`.
+ *
+ * Tailwind v3:
+ * - Not supported as written. Tailwind v3 does not support `@theme inline`.
+ *   Depending on your PostCSS config, this may throw a build error or be
+ *   silently ignored — either way, the utility classes will not be emitted.
+ * - For v3, remove the `@theme inline` block and register the same token
+ *   mappings manually in `tailwind.config.js`.
+ * - See `SKILL.md` -> `Tailwind v3 Setup` for the required mapping.
+ *
+ * Import this file once:
+ * - inside `<style type="text/tailwindcss">` when using the CDN build, or
+ * - in your project's main CSS entry file when using Vite/PostCSS.
+ */
+
+@import "./primitives.css";
+@import "./semantics.css";
+
+/* ─────────────────────────────────────────────────────────────
+ * SHADCN BRIDGE — maps --dsgnmind-* → unnamespaced vars
+ * ───────────────────────────────────────────────────────────── */
+
+:root {
+  color-scheme: light;
+
+  --background:         var(--dsgnmind-background);
+  --foreground:         var(--dsgnmind-foreground);
+  --card:               var(--dsgnmind-card);
+  --card-foreground:    var(--dsgnmind-card-foreground);
+  --popover:            var(--dsgnmind-popover);
+  --popover-foreground: var(--dsgnmind-popover-foreground);
+  --primary:            var(--dsgnmind-primary);
+  --primary-foreground: var(--dsgnmind-primary-foreground);
+  --primary-hover:      var(--dsgnmind-primary-hover);
+  --primary-active:     var(--dsgnmind-primary-active);
+  --secondary:            var(--dsgnmind-secondary);
+  --secondary-foreground: var(--dsgnmind-secondary-foreground);
+  --muted:            var(--dsgnmind-muted);
+  --muted-foreground: var(--dsgnmind-muted-foreground);
+  --muted-hover:      var(--dsgnmind-muted-hover);
+  --muted-active:     var(--dsgnmind-muted-active);
+  --accent:            var(--dsgnmind-accent);
+  --accent-foreground: var(--dsgnmind-accent-foreground);
+  --destructive:            var(--dsgnmind-destructive);
+  --destructive-foreground: var(--dsgnmind-destructive-foreground);
+  --destructive-hover:      var(--dsgnmind-destructive-hover);
+  --destructive-active:     var(--dsgnmind-destructive-active);
+  --destructive-light:      var(--dsgnmind-destructive-light);
+  --destructive-text:       var(--dsgnmind-destructive-text);
+  --success:            var(--dsgnmind-success);
+  --success-foreground: var(--dsgnmind-success-foreground);
+  --success-light:      var(--dsgnmind-success-light);
+  --success-text:       var(--dsgnmind-success-text);
+  --warning:            var(--dsgnmind-warning);
+  --warning-foreground: var(--dsgnmind-warning-foreground);
+  --warning-light:      var(--dsgnmind-warning-light);
+  --warning-text:       var(--dsgnmind-warning-text);
+  --alert:            var(--dsgnmind-alert);
+  --alert-foreground: var(--dsgnmind-alert-foreground);
+  --alert-light:      var(--dsgnmind-alert-light);
+  --alert-text:       var(--dsgnmind-alert-text);
+  --info:            var(--dsgnmind-info);
+  --info-foreground: var(--dsgnmind-info-foreground);
+  --info-light:      var(--dsgnmind-info-light);
+  --border:            var(--dsgnmind-border);
+  --border-subtle:     var(--dsgnmind-border-subtle);
+  --input:             var(--dsgnmind-input);
+  --ring:              var(--dsgnmind-ring);
+  --ring-destructive:  var(--dsgnmind-ring-destructive);
+  --overlay:           var(--dsgnmind-overlay);
+  --sidebar:                    var(--dsgnmind-sidebar);
+  --sidebar-foreground:         var(--dsgnmind-sidebar-foreground);
+  --sidebar-primary:            var(--dsgnmind-sidebar-primary);
+  --sidebar-primary-foreground: var(--dsgnmind-sidebar-primary-foreground);
+  --sidebar-accent:             var(--dsgnmind-sidebar-accent);
+  --sidebar-accent-foreground:  var(--dsgnmind-sidebar-accent-foreground);
+  --sidebar-border:             var(--dsgnmind-sidebar-border);
+  --sidebar-ring:               var(--dsgnmind-sidebar-ring);
+  --font-sans: var(--dsgnmind-font-sans);
+  --font-mono: var(--dsgnmind-font-mono);
+}
+
+.dark {
+  color-scheme: dark;
+
+  --background:         var(--dsgnmind-background);
+  --foreground:         var(--dsgnmind-foreground);
+  --card:               var(--dsgnmind-card);
+  --card-foreground:    var(--dsgnmind-card-foreground);
+  --popover:            var(--dsgnmind-popover);
+  --popover-foreground: var(--dsgnmind-popover-foreground);
+  --primary:            var(--dsgnmind-primary);
+  --primary-foreground: var(--dsgnmind-primary-foreground);
+  --primary-hover:      var(--dsgnmind-primary-hover);
+  --primary-active:     var(--dsgnmind-primary-active);
+  --secondary:            var(--dsgnmind-secondary);
+  --secondary-foreground: var(--dsgnmind-secondary-foreground);
+  --muted:            var(--dsgnmind-muted);
+  --muted-foreground: var(--dsgnmind-muted-foreground);
+  --muted-hover:      var(--dsgnmind-muted-hover);
+  --muted-active:     var(--dsgnmind-muted-active);
+  --accent:            var(--dsgnmind-accent);
+  --accent-foreground: var(--dsgnmind-accent-foreground);
+  --destructive:            var(--dsgnmind-destructive);
+  --destructive-foreground: var(--dsgnmind-destructive-foreground);
+  --destructive-hover:      var(--dsgnmind-destructive-hover);
+  --destructive-active:     var(--dsgnmind-destructive-active);
+  --destructive-light:      var(--dsgnmind-destructive-light);
+  --destructive-text:       var(--dsgnmind-destructive-text);
+  --success:            var(--dsgnmind-success);
+  --success-foreground: var(--dsgnmind-success-foreground);
+  --success-light:      var(--dsgnmind-success-light);
+  --success-text:       var(--dsgnmind-success-text);
+  --warning:            var(--dsgnmind-warning);
+  --warning-foreground: var(--dsgnmind-warning-foreground);
+  --warning-light:      var(--dsgnmind-warning-light);
+  --warning-text:       var(--dsgnmind-warning-text);
+  --alert:            var(--dsgnmind-alert);
+  --alert-foreground: var(--dsgnmind-alert-foreground);
+  --alert-light:      var(--dsgnmind-alert-light);
+  --alert-text:       var(--dsgnmind-alert-text);
+  --info:            var(--dsgnmind-info);
+  --info-foreground: var(--dsgnmind-info-foreground);
+  --info-light:      var(--dsgnmind-info-light);
+  --border:            var(--dsgnmind-border);
+  --border-subtle:     var(--dsgnmind-border-subtle);
+  --input:             var(--dsgnmind-input);
+  --ring:              var(--dsgnmind-ring);
+  --ring-destructive:  var(--dsgnmind-ring-destructive);
+  --overlay:           var(--dsgnmind-overlay);
+  --sidebar:                    var(--dsgnmind-sidebar);
+  --sidebar-foreground:         var(--dsgnmind-sidebar-foreground);
+  --sidebar-primary:            var(--dsgnmind-sidebar-primary);
+  --sidebar-primary-foreground: var(--dsgnmind-sidebar-primary-foreground);
+  --sidebar-accent:             var(--dsgnmind-sidebar-accent);
+  --sidebar-accent-foreground:  var(--dsgnmind-sidebar-accent-foreground);
+  --sidebar-border:             var(--dsgnmind-sidebar-border);
+  --sidebar-ring:               var(--dsgnmind-sidebar-ring);
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * TAILWIND THEME BRIDGE
+ * ───────────────────────────────────────────────────────────── */
+
+@theme inline {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --color-background:         var(--background);
+  --color-foreground:         var(--foreground);
+  --color-card:               var(--card);
+  --color-card-foreground:    var(--card-foreground);
+  --color-popover:            var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary:            var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover:      var(--primary-hover);
+  --color-primary-active:     var(--primary-active);
+  --color-secondary:            var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted:            var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted-hover:      var(--muted-hover);
+  --color-muted-active:     var(--muted-active);
+  --color-accent:            var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive:            var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-hover:      var(--destructive-hover);
+  --color-destructive-active:     var(--destructive-active);
+  --color-destructive-light:      var(--destructive-light);
+  --color-destructive-text:       var(--destructive-text);
+  --color-success:            var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-light:      var(--success-light);
+  --color-success-text:       var(--success-text);
+  --color-warning:            var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-light:      var(--warning-light);
+  --color-warning-text:       var(--warning-text);
+  --color-alert:            var(--alert);
+  --color-alert-foreground: var(--alert-foreground);
+  --color-alert-light:      var(--alert-light);
+  --color-alert-text:       var(--alert-text);
+  --color-info:            var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-light:      var(--info-light);
+  --color-border:            var(--border);
+  --color-border-subtle:     var(--border-subtle);
+  --color-input:             var(--input);
+  --color-ring:              var(--ring);
+  --color-ring-destructive:  var(--ring-destructive);
+  --color-overlay:           var(--overlay);
+  --color-sidebar:                    var(--sidebar);
+  --color-sidebar-foreground:         var(--sidebar-foreground);
+  --color-sidebar-primary:            var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent:             var(--sidebar-accent);
+  --color-sidebar-accent-foreground:  var(--sidebar-accent-foreground);
+  --color-sidebar-border:             var(--sidebar-border);
+  --color-sidebar-ring:               var(--sidebar-ring);
+}

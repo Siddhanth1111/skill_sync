@@ -20,10 +20,30 @@ def _now() -> datetime:
     return datetime.utcnow()
 
 
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(100))
+    full_name: Mapped[Optional[str]] = mapped_column(String(120))
+    role: Mapped[str] = mapped_column(String(10))  # recruiter | student | admin
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class ActivityLog(Base):
+    """Admin-visible audit trail. Holds action names, ids and counts only: never resume text or personal data."""
+    __tablename__ = "activity_log"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)
+    action: Mapped[str] = mapped_column(String(40))
+    detail: Mapped[Optional[str]] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, index=True)
+
+
 class Job(Base):
     __tablename__ = "jobs"
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)  # filled once auth lands (Phase 3)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(300))
     text: Mapped[str] = mapped_column(Text)
     requirements_source: Mapped[Optional[str]] = mapped_column(String(10))  # llm | rules
@@ -49,7 +69,7 @@ class Requirement(Base):
 class Candidate(Base):
     __tablename__ = "candidates"
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     job_id: Mapped[Optional[int]] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)  # null in student mode
     filename: Mapped[str] = mapped_column(String(300))
     status: Mapped[str] = mapped_column(String(10), default="queued", index=True)  # queued|parsing|done|failed

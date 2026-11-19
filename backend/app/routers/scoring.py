@@ -7,8 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import Settings
-from ..db import Candidate, Feedback, Job, JobModel, ScoreRun
-from ..deps import get_db
+from ..db import Candidate, Feedback, Job, JobModel, ScoreRun, User
+from ..deps import get_db, log_activity, owned_candidate, owned_job, recruiter_only
 from ..services import feedback as fb
 from ..services.explain import explanation
 from ..services.matrix import job_candidates, job_matrix, req_dicts, score_dict
@@ -17,13 +17,6 @@ from ..services.scoring import config_snapshot, load_scores, req_views, score_ca
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["scoring"])
-
-
-def get_job_or_404(db: Session, job_id: int) -> Job:
-    job = db.get(Job, job_id)
-    if job is None:
-        raise HTTPException(404, "job not found")
-    return job
 
 
 def run_scoring(session_factory: sessionmaker, run_id: int, models, settings: Settings) -> None:
@@ -55,8 +48,9 @@ def _run_out(run: ScoreRun) -> dict:
 
 
 @router.post("/jobs/{job_id}/score", status_code=202)
-def start_scoring(job_id: int, request: Request, db: Session = Depends(get_db)):
-    job = get_job_or_404(db, job_id)
+def start_scoring(request: Request, job: Job = Depends(owned_job), user: User = Depends(recruiter_only),
+                  db: Session = Depends(get_db)):
+    job_id = job.id
     state = request.app.state
     if not job.requirements:
         raise HTTPException(400, "job has no requirements")
@@ -69,28 +63,29 @@ def start_scoring(job_id: int, request: Request, db: Session = Depends(get_db)):
     run = ScoreRun(job_id=job_id, total=len(cands), config=config_snapshot(state.models, state.settings))
     db.add(run)
     db.commit()
+    log_activity(db, user.id, "scoring_started", "job_id=%d candidates=%d" % (job_id, len(cands)))
     state.pool.submit_task(run_scoring, state.session_factory, run.id, state.models, state.settings)
     return _run_out(run)
 
 
 @router.get("/jobs/{job_id}/score/status")
-def scoring_status(job_id: int, db: Session = Depends(get_db)):
-    get_job_or_404(db, job_id)
+def scoring_status(job: Job = Depends(owned_job), _: User = Depends(recruiter_only), db: Session = Depends(get_db)):
+    job_id = job.id
     run = db.scalar(select(ScoreRun).where(ScoreRun.job_id == job_id).order_by(ScoreRun.id.desc()))
     return _run_out(run) if run else {"status": "none", "done": 0, "total": 0}
 
 
 @router.get("/jobs/{job_id}/matrix")
-def matrix(job_id: int, request: Request, db: Session = Depends(get_db)):
+def matrix(request: Request, job: Job = Depends(owned_job), _: User = Depends(recruiter_only), db: Session = Depends(get_db)):
     """The requirement-evidence matrix. The browser re-ranks from this with no further server calls."""
-    return job_matrix(db, get_job_or_404(db, job_id), request.app.state.settings)
+    return job_matrix(db, job, request.app.state.settings)
 
 
 @router.get("/jobs/{job_id}/ranking")
-def ranking(job_id: int, request: Request, db: Session = Depends(get_db)):
+def ranking(request: Request, job: Job = Depends(owned_job), _: User = Depends(recruiter_only), db: Session = Depends(get_db)):
     """Server-side ranking with the stored weights (the browser computes the identical formula)."""
     settings = request.app.state.settings
-    job = get_job_or_404(db, job_id)
+    job_id = job.id
     cands = {c.id: c for c in job_candidates(db, job)}
     loaded = load_scores(db, list(cands))
     reqs = req_dicts(job)
@@ -108,12 +103,12 @@ def ranking(job_id: int, request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/candidates/{candidate_id}/explanation")
-def candidate_explanation(candidate_id: int, request: Request, db: Session = Depends(get_db)):
+def candidate_explanation(request: Request, cand: Candidate = Depends(owned_candidate), _: User = Depends(recruiter_only),
+                          db: Session = Depends(get_db)):
     """Stage 12: requirements (unmet first), gaps by points gained, and a narrative limited to verified quotes."""
     state = request.app.state
-    cand = db.get(Candidate, candidate_id)
-    if cand is None or cand.job_id is None:
-        raise HTTPException(404, "candidate not found in a job")
+    if cand.job_id is None:
+        raise HTTPException(404, "Candidate not found in a job.")
     job = db.get(Job, cand.job_id)
     scores = {rid: score_dict(s, state.settings) for rid, s in load_scores(db, [cand.id])[cand.id].items()}
     if not scores:

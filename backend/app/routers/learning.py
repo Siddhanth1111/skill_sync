@@ -3,12 +3,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..db import Candidate, Feedback, Job, JobModel
-from ..deps import get_db
+from ..db import Candidate, Feedback, Job, JobModel, User
+from ..deps import get_db, log_activity, owned_candidate, owned_job, recruiter_only
 from ..schemas import FeedbackIn
 from ..services import feedback as fb
 from ..services.matrix import job_candidates, req_dicts, score_matrix
-from .scoring import get_job_or_404
 
 router = APIRouter(tags=["learning"])
 
@@ -20,16 +19,16 @@ def _counts(db: Session, job: Job) -> dict:
 
 
 @router.post("/candidates/{candidate_id}/feedback")
-def rate_candidate(candidate_id: int, body: FeedbackIn, request: Request, db: Session = Depends(get_db)):
+def rate_candidate(body: FeedbackIn, request: Request, cand: Candidate = Depends(owned_candidate),
+                   user: User = Depends(recruiter_only), db: Session = Depends(get_db)):
     """Store a thumbs up or down with the candidate's requirement-level features (one rating per candidate)."""
     settings = request.app.state.settings
-    cand = db.get(Candidate, candidate_id)
-    if cand is None or cand.job_id is None:
-        raise HTTPException(404, "candidate not found in a job")
+    if cand.job_id is None:
+        raise HTTPException(404, "Candidate not found in a job.")
     job = db.get(Job, cand.job_id)
     scores = score_matrix(db, job).get(cand.id)
     if not scores:
-        raise HTTPException(409, "score this job before rating candidates")
+        raise HTTPException(409, "Score this job before rating candidates.")
     features = fb.features_for(req_dicts(job), scores, settings)
     row = db.scalar(select(Feedback).where(Feedback.candidate_id == cand.id))
     if row:
@@ -41,9 +40,10 @@ def rate_candidate(candidate_id: int, body: FeedbackIn, request: Request, db: Se
 
 
 @router.post("/jobs/{job_id}/model/train")
-def train_model(job_id: int, request: Request, db: Session = Depends(get_db)):
+def train_model(request: Request, job: Job = Depends(owned_job), user: User = Depends(recruiter_only),
+                db: Session = Depends(get_db)):
     settings = request.app.state.settings
-    job = get_job_or_404(db, job_id)
+    job_id = job.id
     ids = [c.id for c in job_candidates(db, job)]
     rows = db.scalars(select(Feedback).where(Feedback.candidate_id.in_(ids))).all() if ids else []
     up, down = sum(r.rating == "up" for r in rows), sum(r.rating == "down" for r in rows)
@@ -57,13 +57,14 @@ def train_model(job_id: int, request: Request, db: Session = Depends(get_db)):
     else:
         db.add(JobModel(job_id=job_id, params=result["params"], metrics=result["metrics"]))
     db.commit()
-    return get_model(job_id, request, db)
+    log_activity(db, user.id, "model_trained", "job_id=%d n=%d" % (job_id, len(rows)))
+    return get_model(request, job, user, db)
 
 
 @router.get("/jobs/{job_id}/model")
-def get_model(job_id: int, request: Request, db: Session = Depends(get_db)):
+def get_model(request: Request, job: Job = Depends(owned_job), _: User = Depends(recruiter_only), db: Session = Depends(get_db)):
     settings = request.app.state.settings
-    job = get_job_or_404(db, job_id)
+    job_id = job.id
     counts = _counts(db, job)
     model = db.scalar(select(JobModel).where(JobModel.job_id == job_id))
     out = {"job_id": job_id, **counts, "can_train": fb.can_train(counts["up"], counts["down"], settings),

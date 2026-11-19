@@ -21,7 +21,9 @@ JD_SYSTEM = (
     "You split a job description into atomic, individually checkable requirements. Return JSON only, matching "
     "the schema. type is skill, experience or education. importance is must (required), should (expected) or "
     "nice (preferred or bonus). Put related skills in skills. Set years_required or degree_level_required "
-    "(1 bachelor, 2 master, 3 PhD) only when stated. Ignore benefits, perks, company blurbs and legal text."
+    "(1 bachelor, 2 master, 3 PhD) only when stated. Ignore benefits, perks, company blurbs and legal text. "
+    "Include EVERY requirement or qualification the posting lists, including preferred and nice-to-have items "
+    "(importance nice). Do not merge separate bullets and do not skip any."
 )
 
 

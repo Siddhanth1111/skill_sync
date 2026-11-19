@@ -1,34 +1,24 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ..db import Candidate
-from ..deps import get_db
-from ..schemas import CandidateDetail, CandidateStatus
-from ..services.ingest import save_temp
-from ..services.parsing import validate_upload
+from ..db import Candidate, User
+from ..deps import get_db, log_activity, owned_candidate, recruiter_or_student
+from ..schemas import CandidateDetail
 
 router = APIRouter(tags=["candidates"])
 
 
 @router.get("/candidates/{candidate_id}", response_model=CandidateDetail)
-def get_candidate(candidate_id: int, db: Session = Depends(get_db)):
-    """Parsed profile, parse confidence and labelled chunks for one resume (what Stages 2-5 produced)."""
-    cand = db.get(Candidate, candidate_id)
-    if cand is None:
-        raise HTTPException(404, "candidate not found")
+def get_candidate(cand: Candidate = Depends(owned_candidate)):
+    """Parsed profile, parse confidence, labelled chunks and extracted text for one resume (Stages 2-5 output)."""
     return cand
 
 
-@router.post("/student/resume", response_model=CandidateStatus, status_code=202)
-async def upload_student_resume(file: UploadFile, request: Request, db: Session = Depends(get_db)):
-    """Student mode: one resume with no job attached (job_id is null). Same Stages 2-5 as recruiter uploads."""
-    settings = request.app.state.settings
-    content = await file.read(settings.max_file_bytes + 1)
-    name = (file.filename or "unnamed")[:300]
-    reason = validate_upload(name, content, settings)
-    cand = Candidate(job_id=None, filename=name, status="failed" if reason else "queued", error=reason)
-    db.add(cand)
+@router.delete("/candidates/{candidate_id}", status_code=204)
+def delete_candidate(cand: Candidate = Depends(owned_candidate), user: User = Depends(recruiter_or_student),
+                     db: Session = Depends(get_db)):
+    """Remove one resume with its chunks, scores and rating."""
+    cid = cand.id
+    db.delete(cand)
     db.commit()
-    if reason is None:
-        request.app.state.pool.submit(cand.id, save_temp(content, name))
-    return cand
+    log_activity(db, user.id, "candidate_deleted", "candidate_id=%d" % cid)

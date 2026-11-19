@@ -56,7 +56,8 @@ def requirement_score(req: ReqView, profile: dict, text: str, rerank: float, set
         return min(1.0, float(profile.get("years_experience") or 0) / float(meta["years_required"]))
     if req.type == "education" and meta.get("degree_level_required"):
         return min(1.0, float(profile.get("education_level") or 0) / float(meta["degree_level_required"]))
-    if req.type == "skill":
+    if req.type == "skill" or (req.type == "experience" and not meta.get("years_required")):
+        # e.g. "Experience with Kafka": no years stated, so what matters is whether the skill is mentioned
         skills = [s for s in (meta.get("skills") or []) if s] or find_skills(req.text)
         if skills:
             known = {s.lower() for s in profile.get("skills") or []}

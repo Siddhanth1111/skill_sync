@@ -104,3 +104,10 @@ def test_rerank_cache_avoids_repeat_model_calls(settings):
         second = r.score(pairs + [("python", "python dev")])
     assert calls == [2, 1]  # second call only scores the one new pair
     assert second[:2] == first
+
+
+def test_experience_requirement_without_years_scores_by_skill_mention():
+    """Found with real Llama: 'Experience with Kafka' came back typed as experience, with no years."""
+    r = req("experience", "Experience with Kafka", {"skills": ["kafka"], "years_required": None})
+    assert abs(requirement_score(r, {"skills": ["Kafka"]}, "", 0.1, S) - 0.85) < 1e-9
+    assert requirement_score(r, {"skills": []}, "nothing relevant", 0.9, S) <= 0.45 + 1e-9

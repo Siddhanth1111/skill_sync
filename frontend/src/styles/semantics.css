@@ -1,0 +1,206 @@
+/*
+ * DSGN MIND — Semantic Tokens
+ * Maps --dsgnmind-* primitives to meaningful UI roles.
+ *
+ * Components use these through Tailwind utility classes
+ * (bg-background, text-primary, border-border, etc.) —
+ * the @theme bridge in index.css handles the mapping.
+ *
+ * Naming convention:
+ *   --dsgnmind-{role}              base value
+ *   --dsgnmind-{role}-foreground   text on that surface
+ *   --dsgnmind-{role}-light        ultra-light background variant
+ *   --dsgnmind-{role}-text         accessible foreground on white
+ */
+
+:root {
+  color-scheme: light;
+
+  /* ── Surfaces ────────────────────────────────────────────── */
+  --dsgnmind-background:         var(--dsgnmind-gray-100);   /* #F8F9FA — page background */
+  --dsgnmind-foreground:         var(--dsgnmind-gray-1400);  /* #16191C — primary text */
+  --dsgnmind-card:               var(--dsgnmind-white);                 /* card / panel surfaces */
+  --dsgnmind-card-foreground:    var(--dsgnmind-gray-1400);  /* #16191C — text on cards */
+  --dsgnmind-popover:            var(--dsgnmind-white);                 /* dropdown / tooltip surfaces */
+  --dsgnmind-popover-foreground: var(--dsgnmind-gray-1400);  /* #16191C — text on popovers */
+
+  /* ── Primary — DSGN MIND Blue ────────────────────────────── */
+  --dsgnmind-primary:            var(--dsgnmind-blue-600);   /* #0060D6 — CTAs, active, links */
+  --dsgnmind-primary-foreground: var(--dsgnmind-white);                 /* text on primary backgrounds */
+  --dsgnmind-primary-hover:      var(--dsgnmind-blue-700);   /* #0051B5 — hover state */
+  --dsgnmind-primary-active:     var(--dsgnmind-blue-800);   /* #004294 — pressed state */
+
+  /* ── Secondary ───────────────────────────────────────────── */
+  --dsgnmind-secondary:            var(--dsgnmind-gray-100); /* #F8F9FA */
+  --dsgnmind-secondary-foreground: var(--dsgnmind-gray-1400);/* #16191C */
+
+  /* ── Muted ───────────────────────────────────────────────── */
+  --dsgnmind-muted:            var(--dsgnmind-gray-200);     /* #E9ECEF — subtle inactive bg */
+  --dsgnmind-muted-foreground: var(--dsgnmind-gray-900);     /* #495057 — secondary / hint text */
+  --dsgnmind-muted-hover:      var(--dsgnmind-gray-300);     /* #DEE2E6 — hover state */
+  --dsgnmind-muted-active:     var(--dsgnmind-gray-400);     /* #CED4DA — pressed state */
+
+  /* ── Accent (Low severity / info tint) ───────────────────── */
+  --dsgnmind-accent:            var(--dsgnmind-blue-100);    /* #E8F1FD — background */
+  --dsgnmind-accent-foreground: var(--dsgnmind-blue-900);    /* #003374 — foreground text */
+
+  /* ── Destructive — DSGN MIND Red ─────────────────────────── */
+  --dsgnmind-destructive:            var(--dsgnmind-red-600);  /* #D62400 — critical severity, delete */
+  --dsgnmind-destructive-foreground: var(--dsgnmind-white);               /* text on destructive backgrounds */
+  --dsgnmind-destructive-hover:      var(--dsgnmind-red-700);  /* #B51F00 — hover state */
+  --dsgnmind-destructive-active:     var(--dsgnmind-red-800);  /* #941900 — pressed state */
+  --dsgnmind-destructive-light:      var(--dsgnmind-red-100);  /* #FFF2F0 — banner/card bg */
+  --dsgnmind-destructive-text:       var(--dsgnmind-red-900);  /* #731400 — accessible fg on white */
+
+  /* ── Success — DSGN MIND Green ───────────────────────────── */
+  --dsgnmind-success:            var(--dsgnmind-green-600);   /* #07A61A — fills, indicators */
+  --dsgnmind-success-foreground: var(--dsgnmind-gray-1400);   /* #16191C — dark for contrast */
+  --dsgnmind-success-light:      var(--dsgnmind-green-100);   /* #E8FCE8 — banner/card bg */
+  --dsgnmind-success-text:       var(--dsgnmind-green-800);   /* #057A13 — accessible fg on white */
+
+  /* ── Warning — DSGN MIND Yellow ──────────────────────────── */
+  --dsgnmind-warning:            var(--dsgnmind-yellow-600);  /* #F5BA0A — fills, indicators */
+  --dsgnmind-warning-foreground: var(--dsgnmind-gray-1400);   /* #16191C — dark for contrast */
+  --dsgnmind-warning-light:      var(--dsgnmind-yellow-100);  /* #FFF8E6 — banner/card bg */
+  --dsgnmind-warning-text:       var(--dsgnmind-yellow-1100); /* #5C4403 — accessible fg on white */
+
+  /* ── Alert — DSGN MIND Orange (High severity only) ───────── */
+  --dsgnmind-alert:            var(--dsgnmind-orange-600);    /* #FF8000 — fills, indicators */
+  --dsgnmind-alert-foreground: var(--dsgnmind-gray-1400);     /* #16191C — dark for contrast */
+  --dsgnmind-alert-light:      var(--dsgnmind-orange-100);    /* #FFF3E6 — banner/card bg */
+  --dsgnmind-alert-text:       var(--dsgnmind-orange-900);    /* #944A00 — accessible fg on white */
+
+  /* ── Info (uses accent/blue tokens) ──────────────────────── */
+  --dsgnmind-info:            var(--dsgnmind-blue-600);       /* #0060D6 — informational */
+  --dsgnmind-info-foreground: var(--dsgnmind-white);          /* text on info backgrounds */
+  --dsgnmind-info-light:      var(--dsgnmind-blue-100);       /* #E8F1FD — help surfaces */
+
+  /* ── Borders & Inputs ────────────────────────────────────── */
+  --dsgnmind-border:        var(--dsgnmind-gray-400);         /* #CED4DA — structural borders */
+  --dsgnmind-border-subtle: var(--dsgnmind-gray-300);         /* #DEE2E6 — softer form/card borders */
+  --dsgnmind-input:         var(--dsgnmind-gray-300);         /* #DEE2E6 — input field borders */
+  --dsgnmind-ring:          var(--dsgnmind-blue-300);         /* #9DC0F6 — focus ring */
+  --dsgnmind-ring-destructive: var(--dsgnmind-red-300);       /* #FABCB3 — destructive focus ring */
+
+  /* ── Overlay ────────────────────────────────────────────── */
+  --dsgnmind-overlay:   oklch(0 0 0 / 0.35);   /* modal/drawer backdrop */
+
+  /* ── Sidebar (Panel 1) ───────────────────────────────────── */
+  --dsgnmind-sidebar:                    var(--dsgnmind-white);
+  --dsgnmind-sidebar-foreground:         var(--dsgnmind-gray-1400);
+  --dsgnmind-sidebar-primary:            var(--dsgnmind-blue-600);
+  --dsgnmind-sidebar-primary-foreground: var(--dsgnmind-white);
+  --dsgnmind-sidebar-accent:             var(--dsgnmind-blue-100);
+  --dsgnmind-sidebar-accent-foreground:  var(--dsgnmind-blue-900);
+  --dsgnmind-sidebar-border:             var(--dsgnmind-gray-400);
+  --dsgnmind-sidebar-ring:               var(--dsgnmind-blue-600);
+
+  /* ── Typography ──────────────────────────────────────────── */
+  --dsgnmind-font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', ui-sans-serif, system-ui, sans-serif;
+  --dsgnmind-font-mono: 'DM Mono', ui-monospace, 'SF Mono', Consolas, 'Courier New', monospace;
+
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * DARK MODE
+ *
+ * Applied by adding class="dark" to <html>.
+ * Remaps semantic --dsgnmind-* tokens to dark primitive values.
+ * The @theme inline bridge in index.css requires no changes —
+ * Tailwind utility classes resolve via var() at runtime.
+ *
+ * Token strategy:
+ *   Surfaces   → gray scale inverted (1300 bg, 1100 cards)
+ *   Text       → gray scale inverted (100 primary, 400 muted)
+ *   Primary    → blue-400 (lighter for dark bg contrast)
+ *   Borders    → gray-1000/1100 (visible on dark surfaces)
+ *   Status fills → same hue, mid-range for visibility on dark
+ *   Status light → darkest tint of each color (1100 step)
+ *   Status text  → lightest tint of each color (100/200 step)
+ *   Sidebar    → one step darker than card (gray-1200)
+ * ───────────────────────────────────────────────────────────── */
+
+.dark {
+  color-scheme: dark;
+
+  /* ── Surfaces ────────────────────────────────────────────── */
+  --dsgnmind-background:         var(--dsgnmind-gray-1300);  /* #212529 — page background */
+  --dsgnmind-foreground:         var(--dsgnmind-gray-100);   /* #F8F9FA — primary text */
+  --dsgnmind-card:               var(--dsgnmind-gray-1100);  /* #343A40 — card / panel surfaces */
+  --dsgnmind-card-foreground:    var(--dsgnmind-gray-100);   /* #F8F9FA — text on cards */
+  --dsgnmind-popover:            var(--dsgnmind-gray-1100);  /* #343A40 — dropdown / tooltip surfaces */
+  --dsgnmind-popover-foreground: var(--dsgnmind-gray-100);   /* #F8F9FA — text on popovers */
+
+  /* ── Primary — DSGN MIND Blue ────────────────────────────── */
+  --dsgnmind-primary:            var(--dsgnmind-blue-400);   /* #70A3F0 — lighter blue for dark bg */
+  --dsgnmind-primary-foreground: var(--dsgnmind-gray-1300);  /* #212529 — dark text on light blue */
+  --dsgnmind-primary-hover:      var(--dsgnmind-blue-300);   /* #9DC0F6 — hover state */
+  --dsgnmind-primary-active:     var(--dsgnmind-blue-500);   /* #3C82E8 — pressed state */
+
+  /* ── Secondary ───────────────────────────────────────────── */
+  --dsgnmind-secondary:            var(--dsgnmind-gray-1100); /* #343A40 */
+  --dsgnmind-secondary-foreground: var(--dsgnmind-gray-100);  /* #F8F9FA */
+
+  /* ── Muted ───────────────────────────────────────────────── */
+  --dsgnmind-muted:            var(--dsgnmind-gray-1100);    /* #343A40 — subtle inactive bg */
+  --dsgnmind-muted-foreground: var(--dsgnmind-gray-600);     /* #9AA2AA — secondary / hint text */
+  --dsgnmind-muted-hover:      var(--dsgnmind-gray-1000);    /* #3F464D — hover state */
+  --dsgnmind-muted-active:     var(--dsgnmind-gray-900);     /* #495057 — pressed state */
+
+  /* ── Accent ──────────────────────────────────────────────── */
+  --dsgnmind-accent:            var(--dsgnmind-blue-1100);   /* #001839 — deep blue tint bg */
+  --dsgnmind-accent-foreground: var(--dsgnmind-blue-200);    /* #C5DAFA — light text on deep blue */
+
+  /* ── Destructive — DSGN MIND Red ─────────────────────────── */
+  --dsgnmind-destructive:            var(--dsgnmind-red-500);   /* #EC6750 — softer on dark bg */
+  --dsgnmind-destructive-foreground: var(--dsgnmind-gray-1300); /* #212529 — dark text on red */
+  --dsgnmind-destructive-hover:      var(--dsgnmind-red-400);   /* #F59788 — hover state */
+  --dsgnmind-destructive-active:     var(--dsgnmind-red-600);   /* #D62400 — pressed state */
+  --dsgnmind-destructive-light:      var(--dsgnmind-red-1100);  /* #380A00 — dark banner/card bg */
+  --dsgnmind-destructive-text:       var(--dsgnmind-red-200);   /* #FDDAD5 — accessible fg on dark */
+
+  /* ── Success — DSGN MIND Green ───────────────────────────── */
+  --dsgnmind-success:            var(--dsgnmind-green-500);   /* #30C442 — brighter on dark bg */
+  --dsgnmind-success-foreground: var(--dsgnmind-gray-1300);   /* #212529 — dark text on green */
+  --dsgnmind-success-light:      var(--dsgnmind-green-1100);  /* #023808 — dark banner/card bg */
+  --dsgnmind-success-text:       var(--dsgnmind-green-200);   /* #C2F5C6 — accessible fg on dark */
+
+  /* ── Warning — DSGN MIND Yellow ──────────────────────────── */
+  --dsgnmind-warning:            var(--dsgnmind-yellow-500);  /* #FACB30 — brighter on dark bg */
+  --dsgnmind-warning-foreground: var(--dsgnmind-gray-1300);   /* #212529 — dark text on yellow */
+  --dsgnmind-warning-light:      var(--dsgnmind-yellow-1200); /* #3D2D02 — dark banner/card bg */
+  --dsgnmind-warning-text:       var(--dsgnmind-yellow-200);  /* #FFEFC2 — accessible fg on dark */
+
+  /* ── Alert — DSGN MIND Orange ───────────────────────────── */
+  --dsgnmind-alert:            var(--dsgnmind-orange-500);    /* #FF9A30 — brighter on dark bg */
+  --dsgnmind-alert-foreground: var(--dsgnmind-gray-1300);     /* #212529 — dark text on orange */
+  --dsgnmind-alert-light:      var(--dsgnmind-orange-1100);   /* #4F2800 — dark banner/card bg */
+  --dsgnmind-alert-text:       var(--dsgnmind-orange-200);    /* #FFE0C2 — accessible fg on dark */
+
+  /* ── Info ────────────────────────────────────────────────── */
+  --dsgnmind-info:            var(--dsgnmind-blue-400);       /* #70A3F0 — informational */
+  --dsgnmind-info-foreground: var(--dsgnmind-gray-1300);      /* #212529 — dark text on info */
+  --dsgnmind-info-light:      var(--dsgnmind-blue-1100);      /* #001839 — dark help surfaces */
+
+  /* ── Borders & Inputs ────────────────────────────────────── */
+  --dsgnmind-border:        var(--dsgnmind-gray-1000);        /* #3F464D — structural borders */
+  --dsgnmind-border-subtle: var(--dsgnmind-gray-1100);        /* #343A40 — softer borders (near card) */
+  --dsgnmind-input:         var(--dsgnmind-gray-1000);        /* #3F464D — input field borders */
+  --dsgnmind-ring:          var(--dsgnmind-blue-400);         /* #70A3F0 — focus ring */
+  --dsgnmind-ring-destructive: var(--dsgnmind-red-500);       /* #EC6750 — destructive focus ring */
+
+  /* ── Overlay ────────────────────────────────────────────── */
+  --dsgnmind-overlay:   oklch(0 0 0 / 0.5);    /* darker on dark surfaces */
+
+  /* ── Sidebar ─────────────────────────────────────────────── */
+  --dsgnmind-sidebar:                    var(--dsgnmind-gray-1200);  /* #2A2F34 — darker than card */
+  --dsgnmind-sidebar-foreground:         var(--dsgnmind-gray-100);
+  --dsgnmind-sidebar-primary:            var(--dsgnmind-blue-400);   /* #70A3F0 */
+  --dsgnmind-sidebar-primary-foreground: var(--dsgnmind-gray-1300);
+  --dsgnmind-sidebar-accent:             var(--dsgnmind-blue-1100);  /* #001839 */
+  --dsgnmind-sidebar-accent-foreground:  var(--dsgnmind-blue-200);   /* #C5DAFA */
+  --dsgnmind-sidebar-border:             var(--dsgnmind-gray-1000);
+  --dsgnmind-sidebar-ring:               var(--dsgnmind-blue-400);
+
+  /* Typography unchanged — fonts don't switch in dark mode */
+}

@@ -1,9 +1,9 @@
-# SkillSync: pipeline stages 1 to 15 (backend + UI)
+# SkillSync: pipeline stages 1 to 16 (backend + UI)
 
-SkillSync is an auditable candidate-ranking assistant. This repository implements **stages 1 to 15** of *SkillSync: Final
-Pipeline and Build Specification* (the PDF in this folder): a FastAPI backend and a React UI with no login and no roles
-(the Recruiter and Student tabs are only two views). Stage 16 (analytics), authentication and the evaluation harness
-(gold set, five-system benchmark, MLflow) are not built yet.
+SkillSync is an auditable candidate-ranking assistant. This repository implements **stages 1 to 16** of *SkillSync: Final
+Pipeline and Build Specification* (the PDF in this folder): a FastAPI backend and a React + Tailwind frontend with sign-up,
+sign-in, three roles (recruiter, student, admin), per-user data isolation, and a full set of pages. Not built yet: the
+evaluation harness (gold set, five-system benchmark, MLflow), Docker Compose packaging, pgvector.
 
 Hard rules from the spec that the code follows:
 - A human makes every hiring decision. Nothing approves or rejects anyone.
@@ -12,6 +12,7 @@ Hard rules from the spec that the code follows:
 - Protected characteristics are never inferred or used as features.
 - Model names, thresholds and weights live in one config file (`backend/app/config.py`).
 - Per-requirement scores are stored, so changing weights needs no new model calls.
+- Every query on user data is filtered by the signed-in user. Passwords are hashed, tokens are signed and expire.
 
 | Stage | What it does | Where |
 |---|---|---|
@@ -30,6 +31,9 @@ Hard rules from the spec that the code follows:
 | 13. Learning from feedback | thumbs, logistic regression on 7 features, CV AUC / Brier / ECE, SHAP | `services/feedback.py` |
 | 14. Fairness audit | blind, counterfactual, adverse impact + Fairlearn, WEAT, monitoring | `services/fairness.py` |
 | 15. Student mode | one resume vs many jobs, roadmap, what-if simulator | `services/student.py` |
+| 16. Analytics | score distribution, tiers, requirement coverage, near matches, skill demand | `routers/analytics.py` |
+| Auth, roles, admin, privacy | register/login, JWT, role checks, ownership checks, admin, delete-my-data | `security.py`, `deps.py`, `routers/auth.py`, `routers/admin.py` |
+| Also | CSV export, semantic search over resumes | `routers/analytics.py` |
 
 ## Quick start
 
@@ -41,7 +45,7 @@ Prerequisites: Python 3.9+, Node 18+, [Ollama](https://ollama.com) with `ollama 
 cd backend
 python3 -m venv ../.venv && source ../.venv/bin/activate
 pip install -r requirements.txt
-pytest                                            # 95 tests, no models or Ollama needed
+pytest                                            # 124 tests, no models or Ollama needed
 uvicorn app.main:create_app --factory --reload    # http://localhost:8000/docs
 
 # terminal 2: frontend
@@ -50,57 +54,93 @@ npm install
 npm run dev                                       # http://localhost:5173
 ```
 
+Open http://localhost:5173 and **create an account** (recruiter or student). Admins cannot self-register; create one with:
+
+```bash
+cd backend && python -m app.cli create-admin you@example.com      # prompts for a password
+# or set SKILLSYNC_ADMIN_EMAIL and SKILLSYNC_ADMIN_PASSWORD and one is created at start-up
+```
+
 **Two modes for the ML models** (`SKILLSYNC_MODEL_BACKEND`):
 - `real` (default): bge-base-en-v1.5 embeddings, bge-reranker-base, microsoft/deberta-base-mnli. About 2 GB downloaded
   from HuggingFace on first use, so the first scoring run is slow.
 - `light`: small deterministic stand-ins (hashed word vectors, word-overlap reranker and entailment). No downloads, runs in
   seconds, good for trying the workflow and for tests. **Its scores say nothing about real model quality.**
 
-```bash
-SKILLSYNC_MODEL_BACKEND=light uvicorn app.main:create_app --factory --reload
-```
-
-Other settings (all `SKILLSYNC_*` env vars, see `backend/app/config.py` and `backend/.env.example`): database URL, Ollama
-URL and model, upload limits, OCR threshold, embedding/reranker/NLI model names (swap for the ablation with no code
-change), thresholds (0.6 / 0.3 / entailment / 0.9 penalty), minimum ratings, fairness thresholds.
+Other settings (all `SKILLSYNC_*` env vars, see `backend/app/config.py` and `backend/.env.example`): database URL, JWT secret
+and lifetime, Ollama URL and model, upload limits, OCR threshold, embedding/reranker/NLI model names, thresholds, minimum
+ratings, fairness thresholds. If no `SKILLSYNC_JWT_SECRET` is set, a random secret is created once in `backend/.jwt_secret`
+(git-ignored).
 
 Note: PDFs with under 200 characters of text are treated as scanned and need OCR (spec rule). If Tesseract is missing,
 tiny test PDFs fail with a clear reason; set `SKILLSYNC_OCR_MIN_CHARS=50` to try short synthetic resumes.
 
+## The frontend (`frontend/`)
+
+React 19 (JavaScript), Vite, **Tailwind CSS v4**, **React Router**, lucide-react icons, DM Sans. It is built on the
+design-system tokens in `src/styles/` (semantic colours such as `bg-card`, `text-muted-foreground`, `border-border`; flat,
+border-driven surfaces; one primary action per screen). The reusable pieces are in `src/components/ui/` (Button, Badge, Card,
+Form, Layout/DataTable/Tabs, Overlay/Dialog/Sheet, Feedback/Alert/Progress, Toast, Charts).
+
+| Route | Who | What |
+|---|---|---|
+| `/login`, `/register` | public | sign in, create a recruiter or student account |
+| `/recruiter` | recruiter | dashboard: stats, recent jobs, most-missed requirements, skills in demand |
+| `/recruiter/jobs`, `/jobs/new` | recruiter | job list (delete), create from a pasted description |
+| `/recruiter/jobs/:id` | recruiter | requirements editor |
+| `.../resumes` | recruiter | drag-and-drop upload, live parse status, parsed resume panel, delete |
+| `.../ranking` | recruiter | run scoring, weight sliders that re-rank in the browser, evidence panel (`?candidate=ID`), ratings |
+| `.../fairness` | recruiter | blind, counterfactual, impact ratio, WEAT, trend chart, reopen past audits |
+| `.../learning` | recruiter | rating progress, train learned score, AUC / Brier / ECE, SHAP drivers |
+| `.../analytics` | recruiter | score histogram, tiers, requirement coverage, one-requirement-away list |
+| `/recruiter/search`, `/analytics` | recruiter | semantic resume search; cross-job analytics |
+| `/student`, `/resume`, `/jobs`, `/matches`, `/matches/:jobId` | student | overview checklist, one resume, job descriptions, ranked matches, roadmap and what-if |
+| `/admin`, `/users`, `/activity` | admin | stats, user list and delete, activity log |
+| `/settings` | everyone | account, delete my data, delete my account |
+
+Route guards send signed-out users to `/login` and signed-in users to their own area if they open another role's pages.
+The API client (`src/api/`) adds the bearer token, turns errors into readable messages, and signs the user out on an expired
+token. Vite proxies `/api/*` to the backend on port 8000 (`VITE_BACKEND_URL` to change it).
+
 ## How to use it (workflow)
 
-**Recruiter tab**
-1. *New job*: paste a job description. Requirements appear (type, must/should/nice, weight).
-2. *Requirements and resumes* tab: edit requirements, drop resumes, watch per-file status, click View to inspect a parsed
-   resume (profile, parse-confidence warning, chunks).
-3. *Ranking* tab: **Run scoring** (runs in the background with a progress count). Then:
-   - weight panel: sliders and importance selectors **re-rank instantly in the browser** (no server call);
-   - click a candidate to open the evidence drawer: each requirement with status, verified quotation and section (unmet
-     first), weak-evidence warnings, gaps by points gained, and a short summary; 👍/👎 to rate;
-   - *Save as default* stores the weights. Editing a requirement's wording marks scores stale until scoring is re-run.
-4. *Fairness* tab: blind mode, counterfactual swap, adverse impact (synthetic group labels, top N), WEAT probe, and a trend
-   chart of every past run.
-5. *Learning* tab: rating counts, train the optional learned score (needs 10+ ratings, 3+ of each kind), CV AUC, Brier,
-   ECE, learned score beside the rule score, SHAP drivers.
+**Recruiter**
+1. *New job*: paste a job description. Requirements appear (type, must/should/nice, weight) and can be edited.
+2. *Resumes* tab: drop resumes, watch per-file status, open a parsed resume (profile, parse-confidence warning, segments).
+3. *Ranking* tab: **Run scoring** (background, with progress). Move the sliders or change an importance: the ranking updates
+   instantly in the browser. Click a candidate for the evidence (verified quotation and section per requirement, weak-evidence
+   warnings, biggest gaps, summary) and rate with the thumbs. *Save as default* stores the weights. Editing a requirement's
+   wording marks scores out of date until scoring is re-run.
+4. *Fairness*, *Learning*, *Analytics* tabs as described above. *Export CSV* is in the job header.
 
-**Student tab**: upload one resume, paste job descriptions (kept separate from recruiter jobs), **Match** them (best first),
-click a job for the roadmap (start here / next / later, points per step, running projected score, concrete action) and use
-the what-if box to rescore a temporary copy with a project or skill added (nothing is saved).
+**Student**: upload one resume, paste job descriptions, **Match** (best first), open a job for the roadmap (start here / next /
+later, points per step, running projected score) and use the what-if box (nothing is saved).
+
+**Admin**: see users and the activity log; delete a user together with all of their data. Admins cannot open anyone's resumes.
 
 ## API
 
-| Area | Endpoints |
-|---|---|
-| Jobs | `POST /jobs` (`mode`: recruiter or student), `GET /jobs?mode=`, `GET /jobs/{id}`, `PATCH /jobs/{id}/requirements` |
-| Resumes | `POST /jobs/{id}/resumes` (multipart `files`), `GET /jobs/{id}/status`, `GET /candidates/{id}` |
-| Scoring | `POST /jobs/{id}/score` (202, background), `GET /jobs/{id}/score/status`, `GET /jobs/{id}/matrix`, `GET /jobs/{id}/ranking` |
-| Explanation | `GET /candidates/{id}/explanation` |
-| Learning | `POST /candidates/{id}/feedback`, `POST /jobs/{id}/model/train`, `GET /jobs/{id}/model` |
-| Fairness | `POST /jobs/{id}/audit/blind`, `/audit/counterfactual`, `/audit/impact`, `/audit/weat`, `GET /jobs/{id}/audit/history` |
-| Student | `POST /student/resume`, `POST /student/match`, `GET /student/roadmap`, `POST /student/whatif` |
-| Misc | `GET /health` |
+Everything except `/auth/register`, `/auth/login` and `/health` needs `Authorization: Bearer <token>`. Interactive docs:
+http://localhost:8000/docs. A record that belongs to someone else returns 404, exactly like a missing one.
 
-Interactive docs: http://localhost:8000/docs.
+| Area | Endpoints | Roles |
+|---|---|---|
+| Auth | `POST /auth/register`, `POST /auth/login`, `GET /auth/me`, `DELETE /me/data?delete_account=` | all |
+| Jobs | `POST /jobs`, `GET /jobs`, `GET/DELETE /jobs/{id}`, `PATCH /jobs/{id}/requirements` | recruiter, student (own jobs) |
+| Resumes | `POST /jobs/{id}/resumes`, `GET /jobs/{id}/status`, `GET/DELETE /candidates/{id}` | recruiter (status, upload), recruiter and student (candidate) |
+| Scoring | `POST /jobs/{id}/score` (202), `GET /jobs/{id}/score/status`, `GET /jobs/{id}/matrix`, `GET /jobs/{id}/ranking` | recruiter |
+| Explanation | `GET /candidates/{id}/explanation` | recruiter |
+| Learning | `POST /candidates/{id}/feedback`, `POST /jobs/{id}/model/train`, `GET /jobs/{id}/model` | recruiter |
+| Fairness | `POST /jobs/{id}/audit/blind`, `/counterfactual`, `/impact`, `/weat`; `GET /jobs/{id}/audit/history`, `/audit/{audit_id}` | recruiter |
+| Analytics | `GET /jobs/{id}/analytics`, `GET /analytics/overview`, `GET /jobs/{id}/export.csv`, `GET /search?q=&job_id=` | recruiter |
+| Student | `POST/GET /student/resume`, `POST /student/match`, `GET /student/matches`, `GET /student/roadmap`, `POST /student/whatif` | student |
+| Admin | `GET /admin/users`, `/admin/stats`, `/admin/activity`, `DELETE /admin/users/{id}` | admin |
+
+**Security notes.** Passwords are hashed with bcrypt (8 to 72 characters). Tokens are HS256 JWTs with an expiry (default 8
+hours), and every request re-checks that the user still exists. Login returns the same message for an unknown email and a wrong
+password, always runs one bcrypt comparison, and blocks an email after 8 failures in 15 minutes (in memory, per process).
+Roles are checked on every route, and ownership on every record. The CSV export neutralises spreadsheet formulas in
+resume-derived cells. The activity log stores action names, ids and counts only.
 
 ## How it works
 
@@ -170,44 +210,61 @@ requirement; otherwise a template is used. What-if appends the described project
 mentions) to a temporary copy, rescores, and saves nothing.
 
 ## Database (`backend/app/db.py`)
-Tables: `jobs`, `requirements`, `candidates`, `chunks` (with `embedding` JSON), `scores`, `score_runs`, `rerank_cache`,
-`feedback`, `job_models`, `audit_runs`. Deleting a job cascades. Default is SQLite (`backend/skillsync.db`); an older database
+Tables: `users`, `activity_log`, `jobs`, `requirements`, `candidates`, `chunks` (with `embedding` JSON), `scores`, `score_runs`,
+`rerank_cache`, `feedback`, `job_models`, `audit_runs`. Deleting a job cascades. Default is SQLite (`backend/skillsync.db`); an older database
 gets the new columns added automatically at start-up (a small dev-time migration). Deviations from the spec's table list:
-extra `status`, `error`, `raw_text` on candidates; `mode` and `scores_stale` on jobs; `user_id` is a nullable placeholder
-until auth is built; embeddings are JSON lists searched with numpy, **not pgvector** (see limitations).
+extra `status`, `error`, `raw_text` on candidates; `mode` and `scores_stale` on jobs; `jobs.user_id` and `candidates.user_id` link to `users` (rows created before auth have no owner and are not visible to anyone); embeddings are JSON lists searched with numpy, **not pgvector** (see limitations).
 
 To look at the data: `sqlite3 -header -column backend/skillsync.db` (it contains resume text; it is git-ignored).
 
 ## Tests
 
-`cd backend && pytest` runs 95 tests in about 20 seconds. The LLM is a scripted mock and the models use the `light` backend,
+`cd backend && pytest` runs 124 tests in about 20 seconds. The LLM is a scripted mock and the models use the `light` backend,
 so no downloads are needed. They cover: dates, chunking, rule fallbacks, LLM retry/fallback/sanity checks, parsing and OCR
 paths, scoring formulas, ranking formula and tie-breaks, **backend/browser ranking parity (runs the real `rank.js` with Node)**,
-rerank cache, verified quotes being exact substrings, stale scores, failure reporting, narrative grounding (fabricated quote
-replaced by template), learning (training gate, metrics, SHAP sums to the logit), fairness (blind, swaps, exact impact
-ratios, WEAT statistics, audits leave stored scores untouched, history) and student mode (ordering, roadmap, what-if saves
-nothing).
+rerank cache, verified quotes being exact substrings, stale scores, failure reporting, narrative grounding, learning, fairness,
+student mode, analytics, CSV safety, search, and **auth and access control**: registration rules, hashing, wrong-password and
+unknown-email responses, login throttle, expired / forged / `alg=none` tokens, deleted-user tokens, role checks across every
+route group, cross-user isolation on 16 routes, admin actions, delete-my-data, and an activity log free of personal data.
+
+The UI was driven end to end in a real headless browser (sign-up, every recruiter tab, student flow, admin flow, route guards,
+CSV download, slider re-rank with zero server calls), with no unexpected console errors. That script is not in the repo.
 
 ## What has and has not been verified
 
-REAL_RESULTS_PLACEHOLDER
+- **Unit and API tests:** all 124 pass (see above).
+- **Real models, end to end** (Llama 3.1 8B through Ollama, bge-base, bge-reranker-base, deberta-base-mnli) on three
+  synthetic resumes and one job: all 4 requirements extracted, all 3 resumes parsed by the LLM in about 25 seconds, ranking
+  strong 94.0 / mid 85.5 / weak 3.7, every displayed quotation verified, LLM narrative accepted only because its quotes were
+  verified, roadmap actions drafted by the LLM, what-if 85.5 to 94.0 with nothing saved. This is a smoke test on 3 resumes. It
+  says nothing about accuracy.
+- **Bugs this real run found, now fixed and covered by tests:** the SQLite "database is locked" error when three workers wrote
+  while the embedding model loaded; leaked temp resume files when the final commit failed; Llama returning empty skills and
+  roles because optional fields could be skipped (every schema property is now required); Llama dropping the nice-to-have
+  requirement (prompt fixed); a heading ("SUMMARY") being read as a candidate name by the rule extractor; a UI race where a
+  scoring run that finished before the first poll never refreshed the page.
+- **Not verified:** Tesseract OCR on real scanned resumes (not installed on the build machine); Postgres; any measure of
+  ranking quality, fairness or calibration (the evaluation harness is not built).
 
 ## Known limitations
 - **pgvector is not wired.** Docker was not running on the build machine, so a Postgres/pgvector path could not be tested.
-  Vectors are stored as JSON and compared with numpy, which is fine for the spec's scale (about 200 resumes × 15 chunks per
+  Vectors are stored as JSON and compared with numpy, which is fine at the spec's scale (about 200 resumes x 15 chunks per
   job, searched within one candidate). Moving to pgvector means a `Vector` column and an `<=>` query in `retrieval.py`.
-- No authentication, roles or per-user filtering (Phase 3). The Recruiter/Student tabs are not access control. Do not expose
-  this API publicly as it is.
-- Thresholds (0.6, 0.3, 0.5 entailment, 0.9 penalty) are the spec's starting values and have **not been tuned**; no accuracy,
-  fairness or ranking-quality number has been measured, and none is claimed. The evaluation harness (stage 7 of the build
-  order) is not built.
+- SQLite is the default. A small start-up step adds new columns to an older database, but it cannot change existing
+  constraints; use a real migration tool before production. Login throttling is in memory, so it resets on restart and is per
+  process.
+- Thresholds (0.6, 0.3, 0.9 penalty) are the spec's starting values and have **not been tuned**. The entailment threshold is
+  0.05, chosen from an 8-pair sanity probe with the real DeBERTa model (the spec's idea of 0.5 flagged everything because this
+  model gives low probabilities even for supported quotes). It has not been tuned on a development set either.
 - The `light` backend is only a stand-in for trying the workflow. The fairness audits are crude text transformations; a pass
   does not mean the system is fair.
 - The skill taxonomy (`services/taxonomy.py`) is small; ambiguous names such as R, C and Go are deliberately left out.
-- The experience and education evidence is the nearest text segment, which can be a date line or degree line; the NLI model
-  may mark it as weak evidence even though the score (computed from the profile) is right.
-- Audits and scoring rerun the models; with the real models a 200-resume job will take minutes.
+- The evidence for experience and education requirements is the nearest text segment (a date line or degree line). The NLI
+  model often marks the date line as weak evidence even though the score (computed from the profile) is right.
+- Scoring and audits rerun the models; with the real models a 200-resume job takes minutes, and parsing 200 resumes with an 8B
+  model on a laptop takes an hour or more.
+- No password reset, email verification or refresh tokens yet.
 
 ## Next steps
-Stage 16 analytics, authentication and roles, Docker Compose packaging (pgvector, Ollama, MLflow), then the evaluation
-harness: gold set, kappa, five-system benchmark, faithfulness test.
+Docker Compose packaging (pgvector, Ollama, MLflow), password reset and email verification, then the evaluation harness:
+gold set, kappa, five-system benchmark, faithfulness test, MLflow logging.

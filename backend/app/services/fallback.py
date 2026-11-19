@@ -3,7 +3,7 @@ import re
 from typing import List, Optional
 
 from ..schemas import CandidateProfile, Education, JDExtraction, JDRequirement, Role
-from .chunking import split_sections
+from .chunking import heading_section, split_sections
 from .dates import parse_date, years_of_experience
 from .taxonomy import find_skills
 
@@ -46,6 +46,8 @@ def find_name(text: str) -> Optional[str]:
     """First short line near the top with no digits, '@' or heading words (a heuristic, often right)."""
     for line in text.splitlines()[:6]:
         s = line.strip()
+        if heading_section(s):  # "SUMMARY", "EXPERIENCE" ... are headings, not names
+            continue
         if 2 <= len(s) <= 40 and not re.search(r"[\d@:/|]", s) and 1 <= len(s.split()) <= 4:
             if not any(w in s.lower() for w in ("resume", "curriculum", "vitae")):
                 return s

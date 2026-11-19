@@ -110,7 +110,7 @@ def test_deleting_job_cascades(client_factory, tmp_path):
 
 
 def test_candidate_detail_and_student_upload(client_factory, tmp_path):
-    c = client_factory(DownLLM())
+    c = client_factory(DownLLM(), role="student")
     f = tmp_path / "s.pdf"
     make_pdf(f, RESUME)
     r = c.post("/student/resume", files={"file": ("s.pdf", f.read_bytes(), "application/pdf")})

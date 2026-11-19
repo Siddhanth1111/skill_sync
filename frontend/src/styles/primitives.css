@@ -1,0 +1,107 @@
+/*
+ * DSGN MIND — Primitive Color Scales
+ * WCAG 2.2 AA compliant — all text >= 4.5:1, UI elements >= 3:1
+ *
+ * These are raw color values. Components should NOT reference
+ * --dsgnmind-* primitives directly — use semantic tokens from
+ * semantics.css instead. Primitives exist for edge cases
+ * (charts, skeletons, disabled states) where no semantic
+ * token covers the need.
+ *
+ * Each scale runs 100–1400 (gray) or 100–1200 (color).
+ * Two naming families per scale:
+ *   gray:   "stone" (lighter, surfaces) / "night" (darker, text)
+ *   color:  ultra-light → default → deepest
+ */
+
+:root {
+  /* ── Base ────────────────────────────────────────────────── */
+  --dsgnmind-white: #FFFFFF;
+
+  /* ── Gray / Neutral ──────────────────────────────────────── */
+  --dsgnmind-gray-100:  #F8F9FA;  /* stone lightest — backgrounds, zebra-stripe */
+  --dsgnmind-gray-200:  #E9ECEF;  /* stone lighter  — hover on muted surfaces */
+  --dsgnmind-gray-300:  #DEE2E6;  /* stone light    — light dividers, disabled input bg */
+  --dsgnmind-gray-400:  #CED4DA;  /* stone          — borders, dividers */
+  --dsgnmind-gray-500:  #ADB5BD;  /* stone dark     — input field borders */
+  --dsgnmind-gray-600:  #9AA2AA;  /*                — disabled state backgrounds */
+  --dsgnmind-gray-700:  #8A939B;  /* night lightest — placeholder text, disabled icons */
+  --dsgnmind-gray-800:  #6C757D;  /*                — stronger disabled states */
+  --dsgnmind-gray-900:  #495057;  /* night lighter  — secondary text */
+  --dsgnmind-gray-1000: #3F464D;  /*                — emphasis secondary text */
+  --dsgnmind-gray-1100: #343A40;  /* night light    — strong secondary, sub-headings */
+  --dsgnmind-gray-1200: #2A2F34;  /*                — near-primary text */
+  --dsgnmind-gray-1300: #212529;  /*                — headings */
+  --dsgnmind-gray-1400: #16191C;  /* night          — primary text */
+
+  /* ── Blue / Primary ──────────────────────────────────────── */
+  --dsgnmind-blue-100:  #E8F1FD;  /* primary-ultra-lt — accent bg, low-severity bg */
+  --dsgnmind-blue-200:  #C5DAFA;  /*                  — hover on accent surfaces */
+  --dsgnmind-blue-300:  #9DC0F6;  /*                  — selected row tint, focus ring */
+  --dsgnmind-blue-400:  #70A3F0;  /*                  — progress bar fill, chart secondary */
+  --dsgnmind-blue-500:  #3C82E8;  /*                  — mid-range decorative */
+  --dsgnmind-blue-600:  #0060D6;  /* primary-default  — CTAs, links, active states */
+  --dsgnmind-blue-700:  #0051B5;  /*                  — primary hover state */
+  --dsgnmind-blue-800:  #004294;  /*                  — primary active/pressed state */
+  --dsgnmind-blue-900:  #003374;  /*                  — text on accent bg */
+  --dsgnmind-blue-1000: #002555;  /*                  — dark headings on blue surfaces */
+  --dsgnmind-blue-1100: #001839;  /*                  — near-black blue */
+  --dsgnmind-blue-1200: #000E22;  /*                  — deepest blue */
+
+  /* ── Red / Destructive ───────────────────────────────────── */
+  --dsgnmind-red-100:  #FFF2F0;   /* destructive-ultra — banner/card bg */
+  --dsgnmind-red-200:  #FDDAD5;   /*                   — hover on destructive-light */
+  --dsgnmind-red-300:  #FABCB3;   /*                   — selected row tint, focus ring */
+  --dsgnmind-red-400:  #F59788;   /*                   — progress bar fill */
+  --dsgnmind-red-500:  #EC6750;   /*                   — mid-range decorative */
+  --dsgnmind-red-600:  #D62400;   /* destructive-def   — delete actions, critical severity */
+  --dsgnmind-red-700:  #B51F00;   /*                   — destructive hover state */
+  --dsgnmind-red-800:  #941900;   /*                   — destructive active/pressed */
+  --dsgnmind-red-900:  #731400;   /*                   — dark text on destructive-light */
+  --dsgnmind-red-1000: #540F00;   /*                   — dark headings on red surfaces */
+  --dsgnmind-red-1100: #380A00;   /*                   — near-black red */
+  --dsgnmind-red-1200: #200600;   /*                   — deepest red */
+
+  /* ── Yellow / Warning ────────────────────────────────────── */
+  --dsgnmind-yellow-100:  #FFF8E6; /* warning-ultra-lt — banner/card bg */
+  --dsgnmind-yellow-200:  #FFEFC2; /*                  — hover on warning-light */
+  --dsgnmind-yellow-300:  #FFE38D; /*                  — selected row tint */
+  --dsgnmind-yellow-400:  #FFD75C; /*                  — progress bar fill */
+  --dsgnmind-yellow-500:  #FACB30; /*                  — mid-range decorative */
+  --dsgnmind-yellow-600:  #F5BA0A; /* warning-default  — fills, indicators */
+  --dsgnmind-yellow-700:  #D6A208; /*                  — warning hover state */
+  --dsgnmind-yellow-800:  #B78A07; /*                  — warning active/pressed */
+  --dsgnmind-yellow-900:  #987206; /*                  — legacy (replaced by 1100) */
+  --dsgnmind-yellow-1000: #7A5B04; /*                  — dark headings on yellow */
+  --dsgnmind-yellow-1100: #5C4403; /* warning-text     — accessible fg on white */
+  --dsgnmind-yellow-1200: #3D2D02; /*                  — deepest yellow */
+
+  /* ── Green / Success ─────────────────────────────────────── */
+  --dsgnmind-green-100:  #E8FCE8;  /* success-ultra-lt — banner/card bg */
+  --dsgnmind-green-200:  #C2F5C6;  /*                  — hover on success-light */
+  --dsgnmind-green-300:  #90EA99;  /*                  — selected row tint */
+  --dsgnmind-green-400:  #5CD86A;  /*                  — progress bar fill */
+  --dsgnmind-green-500:  #30C442;  /*                  — mid-range decorative */
+  --dsgnmind-green-600:  #07A61A;  /* success-default  — fills, indicators */
+  --dsgnmind-green-700:  #069016;  /*                  — success hover state */
+  --dsgnmind-green-800:  #057A13;  /* success-text     — accessible fg on white */
+  --dsgnmind-green-900:  #04640F;  /*                  — dark text on success-light */
+  --dsgnmind-green-1000: #034E0C;  /*                  — dark headings on green */
+  --dsgnmind-green-1100: #023808;  /*                  — near-black green */
+  --dsgnmind-green-1200: #012405;  /*                  — deepest green */
+
+  /* ── Orange / Alert ──────────────────────────────────────── */
+  --dsgnmind-orange-100:  #FFF3E6; /* alert-ultra-lt — banner/card bg */
+  --dsgnmind-orange-200:  #FFE0C2; /*               — hover on alert-light */
+  --dsgnmind-orange-300:  #FFCA8F; /*               — selected row tint */
+  --dsgnmind-orange-400:  #FFB35C; /*               — progress bar fill */
+  --dsgnmind-orange-500:  #FF9A30; /*               — mid-range decorative */
+  --dsgnmind-orange-600:  #FF8000; /* alert-default — fills, indicators */
+  --dsgnmind-orange-700:  #DB6E00; /*               — alert hover state */
+  --dsgnmind-orange-800:  #B85C00; /*               — alert active/pressed */
+  --dsgnmind-orange-900:  #944A00; /* alert-text    — accessible fg on white */
+  --dsgnmind-orange-1000: #713900; /*               — dark headings on orange */
+  --dsgnmind-orange-1100: #4F2800; /*               — near-black orange */
+  --dsgnmind-orange-1200: #301800; /*               — deepest orange */
+
+}

@@ -20,7 +20,9 @@ def quote_in_text(quote: str, text: str) -> bool:
 
 def requirement_statement(req_text: str) -> str:
     """The requirement written as a statement for the entailment model (the hypothesis)."""
-    return "The candidate meets this requirement: %s." % req_text.strip().rstrip(".")
+    # Phrasing chosen by a small probe with the real DeBERTa-MNLI model: "has:" separated supported from unsupported
+    # quotes much better than "meets this requirement" (which scored almost everything near 0).
+    return "The candidate has: %s." % req_text.strip().rstrip(".")
 
 
 class LexicalNLI:
@@ -30,7 +32,7 @@ class LexicalNLI:
     def entailment(self, pairs: Sequence[Tuple[str, str]]) -> List[float]:
         out = []
         for premise, hypothesis in pairs:
-            h = tokens(hypothesis) - {"candidate", "meets", "requirement"}
+            h = tokens(hypothesis) - {"candidate", "has"}
             out.append(len(h & tokens(premise)) / len(h) if h else 0.0)
         return out
 

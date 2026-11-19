@@ -87,12 +87,35 @@ def make_docx(path, text: str):
     d.save(str(path))
 
 
+class AuthClient(TestClient):
+    """TestClient that can sign in as a recruiter, student or admin. .use(role) switches the signed-in account."""
+
+    def use(self, role: str = "recruiter", n: int = 1) -> "AuthClient":
+        email = "%s%d@example.com" % (role, n)
+        body = {"email": email, "password": "correct-horse-1", "full_name": role.title(), "role": role}
+        if role == "admin":
+            from app.db import User
+            from app.security import hash_password
+            with self.app.state.session_factory() as db:
+                if not db.query(User).filter_by(email=email).first():
+                    db.add(User(email=email, password_hash=hash_password(body["password"]), role="admin"))
+                    db.commit()
+            r = self.post("/auth/login", json={"email": email, "password": body["password"]}, headers={"Authorization": ""})
+        else:
+            r = self.post("/auth/register", json=body, headers={"Authorization": ""})
+            if r.status_code == 409:
+                r = self.post("/auth/login", json={"email": email, "password": body["password"]}, headers={"Authorization": ""})
+        assert r.status_code in (200, 201), r.text
+        self.headers["Authorization"] = "Bearer " + r.json()["access_token"]
+        self.user = r.json()["user"]
+        return self
+
+
 @pytest.fixture
 def client_factory(settings):
-    def make(llm) -> TestClient:
-        return TestClient(create_app(settings, llm))
+    def make(llm, role: str = "recruiter") -> AuthClient:
+        return AuthClient(create_app(settings, llm)).use(role)
     return make
-
 
 WEAK_RESUME = """Sam Lee
 sam.lee@example.com

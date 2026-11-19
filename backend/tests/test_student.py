@@ -14,7 +14,7 @@ Nice to have
 
 
 def _student(client_factory, tmp_path, resume=MID_RESUME, llm=None):
-    c = client_factory(llm or DownLLM())
+    c = client_factory(llm or DownLLM(), role="student")
     p = tmp_path / "me.pdf"
     make_pdf(p, resume)
     cid = c.post("/student/resume", files={"file": ("me.pdf", p.read_bytes(), "application/pdf")}).json()["id"]
@@ -23,11 +23,13 @@ def _student(client_factory, tmp_path, resume=MID_RESUME, llm=None):
     return c, cid, jobs
 
 
-def test_jobs_filtered_by_mode(client_factory, tmp_path):
+def test_students_and_recruiters_see_only_their_own_jobs(client_factory, tmp_path):
     c, _, jobs = _student(client_factory, tmp_path)
-    c.post("/jobs", json={"title": "Recruiter job", "text": JD})
-    assert [j["title"] for j in c.get("/jobs", params={"mode": "student"}).json()] == ["Analyst", "Backend"]
-    assert [j["title"] for j in c.get("/jobs", params={"mode": "recruiter"}).json()] == ["Recruiter job"]
+    c.use("recruiter").post("/jobs", json={"title": "Recruiter job", "text": JD})
+    assert [j["title"] for j in c.get("/jobs").json()] == ["Recruiter job"]
+    assert all(j["mode"] == "recruiter" for j in c.get("/jobs").json())
+    assert [j["title"] for j in c.use("student").get("/jobs").json()] == ["Analyst", "Backend"]
+    assert all(j["mode"] == "student" for j in c.get("/jobs").json())
 
 
 def test_match_lists_best_first_and_stores_scores(client_factory, tmp_path):
@@ -39,10 +41,13 @@ def test_match_lists_best_first_and_stores_scores(client_factory, tmp_path):
         assert db.query(Score).count() == 4 + 4
 
 
-def test_match_rejects_non_student_and_unparsed(client_factory, tmp_path, pipeline):
-    assert pipeline.post("/student/match", json={"candidate_id": pipeline.cands["strong.pdf"], "job_ids": [pipeline.job_id]}).status_code == 404
-    assert pipeline.post("/student/match", json={"candidate_id": 999, "job_ids": [1]}).status_code == 404
-    assert pipeline.post("/student/match", json={"candidate_id": 1, "job_ids": []}).status_code == 422
+def test_match_rejects_recruiters_and_unknown_resumes(client_factory, tmp_path, pipeline):
+    body = {"candidate_id": pipeline.cands["strong.pdf"], "job_ids": [pipeline.job_id]}
+    assert pipeline.post("/student/match", json=body).status_code == 403          # recruiter account
+    s = pipeline.use("student")
+    assert s.post("/student/match", json=body).status_code == 404                 # someone else's resume
+    assert s.post("/student/match", json={"candidate_id": 999, "job_ids": [1]}).status_code == 404
+    assert s.post("/student/match", json={"candidate_id": 1, "job_ids": []}).status_code == 422
 
 
 def test_roadmap_phases_points_and_projection(client_factory, tmp_path):
@@ -92,3 +97,17 @@ def test_whatif_raises_score_and_saves_nothing(client_factory, tmp_path):
     again = c.post("/student/whatif", json={"candidate_id": cid, "job_id": jobs[1], "addition": "Studied cooking and gardening for fun."}).json()
     assert again["delta_points"] <= 1e-9 and again["after"] <= w["after"]
     assert c.post("/student/whatif", json={"candidate_id": cid, "job_id": 999, "addition": "something here"}).status_code == 404
+
+
+def test_current_resume_is_null_until_uploaded_then_latest(client_factory, tmp_path):
+    c = client_factory(DownLLM(), role="student")
+    assert c.get("/student/resume").status_code == 200 and c.get("/student/resume").json() is None
+    for name in ("first.pdf", "second.pdf"):
+        p = tmp_path / name
+        make_pdf(p, MID_RESUME)
+        c.post("/student/resume", files={"file": (name, p.read_bytes(), "application/pdf")})
+        c.app.state.pool.wait_all()
+    assert c.get("/student/resume").json()["filename"] == "second.pdf"
+    from app.db import Candidate
+    with c.app.state.session_factory() as db:
+        assert db.query(Candidate).count() == 1          # a new upload replaces the old resume

@@ -13,6 +13,14 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "sqlite:///./skillsync.db"
 
+    # Auth. If jwt_secret is empty a random secret is created once and kept in backend/.jwt_secret (git-ignored).
+    jwt_secret: str = ""
+    jwt_expire_minutes: int = 480
+    admin_email: str = ""  # optional: seed an admin account at start-up (with admin_password)
+    admin_password: str = ""
+    login_max_failures: int = 8  # per email, within login_window_s, then 429
+    login_window_s: int = 900
+
     # LLM (Ollama)
     ollama_url: str = "http://localhost:11434"
     llm_model: str = "llama3.1:8b"
@@ -54,7 +62,10 @@ class Settings(BaseSettings):
     skill_present_score: float = 0.85
     skill_absent_cap: float = 0.45
     must_not_met_penalty: float = 0.9
-    entailment_threshold: float = 0.5  # below this a verified quote is flagged as weak evidence
+    # Below this a verified quote is flagged as weak evidence. deberta-base-mnli gives low probabilities even for
+    # supported quotes, so 0.5 flagged everything. 0.05 comes from an 8-pair sanity probe (unsupported <= 0.03,
+    # supported >= 0.07) and has NOT been tuned on a development set. Tune it before trusting the flag.
+    entailment_threshold: float = 0.05
 
     # Stage 13: learning from feedback
     min_ratings: int = 10

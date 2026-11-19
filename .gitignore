@@ -10,3 +10,6 @@ data/
 !backend/tests/fixtures/*.keep
 node_modules/
 dist/
+.jwt_secret
+*.db-shm
+*.db-wal

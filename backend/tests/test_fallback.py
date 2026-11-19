@@ -45,3 +45,8 @@ def test_jd_rules_ignore_benefits_and_set_importance():
     assert kafka.importance == "nice" and kafka.skills == ["kafka"]
     py = by["Strong Python and SQL skills"]
     assert py.type == "skill" and set(py.skills) == {"python", "sql"}
+
+
+def test_heading_is_never_taken_as_the_name():
+    assert find_name("SUMMARY\n2018 - 2020\n") is None
+    assert find_name("SUMMARY\nJane Roe\n") == "Jane Roe"
