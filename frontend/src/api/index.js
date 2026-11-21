@@ -33,6 +33,10 @@ export const api = {
   explanation: (cid) => request(`/candidates/${cid}/explanation`),
   exportCsv: async (id) => (await request(`/jobs/${id}/export.csv`, { raw: true })).blob(),
 
+  // evidence verdicts (the wrong-evidence button; they seed the gold set)
+  evidenceFeedback: (cid) => request(`/candidates/${cid}/evidence-feedback`),
+  flagEvidence: (cid, requirement_id, judgement, grade) => request(`/candidates/${cid}/evidence-feedback`, { method: 'POST', json: { requirement_id, judgement, grade } }),
+
   // learning (13)
   rate: (cid, rating) => request(`/candidates/${cid}/feedback`, { method: 'POST', json: { rating } }),
   model: (id) => request(`/jobs/${id}/model`),

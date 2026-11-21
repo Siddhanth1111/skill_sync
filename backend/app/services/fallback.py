@@ -5,6 +5,7 @@ from typing import List, Optional
 from ..schemas import CandidateProfile, Education, JDExtraction, JDRequirement, Role
 from .chunking import heading_section, split_sections
 from .dates import parse_date, years_of_experience
+from .requirements import finalize_requirement, parse_years
 from .taxonomy import find_skills
 
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
@@ -110,7 +111,8 @@ JD_HEADINGS = [
     ("should", ("responsibilities", "what you'll do", "what you will do", "the role", "your role", "duties")),
 ]
 BULLET_RE = re.compile(r"^\s*(?:[-*•▪◦–·]|\d+[.)])\s+(.*\S)")
-YEARS_RE = re.compile(r"(\d+(?:\.\d+)?)\s*\+?\s*(?:years?|yrs?)", re.I)
+YEARS_RE = re.compile(r"(\d+(?:\.\d+)?)\s*\+?\s*(?:years?|yrs?)", re.I)  # kept for callers; ranges use parse_years
+DUTY_HEADINGS = JD_HEADINGS[3][1]
 
 
 def _heading_importance(line: str):
@@ -124,6 +126,17 @@ def _heading_importance(line: str):
     return False, None
 
 
+def _is_duty_heading(line: str) -> bool:
+    s = line.strip().rstrip(":").strip().lower()
+    return any(s == k or s.startswith(k + " ") or s.endswith(" " + k) for k in DUTY_HEADINGS)
+
+
+def _looks_like_unknown_heading(line: str) -> bool:
+    """A short line with no bullet and no sentence punctuation, e.g. 'Tech stack' or 'Day to day:'."""
+    s = line.strip()
+    return bool(s) and len(s) <= 50 and len(s.split()) <= 6 and not BULLET_RE.match(line) and not re.search(r"[.!?]$", s)
+
+
 def _inline_importance(text: str, default: str) -> str:
     low = text.lower()
     if re.search(r"\b(nice to have|preferred|bonus|a plus|is a plus|desirable|good to have)\b", low):
@@ -135,32 +148,47 @@ def _inline_importance(text: str, default: str) -> str:
 
 def _classify(text: str) -> JDRequirement:
     skills = find_skills(text)
-    years = YEARS_RE.search(text)
+    years, _ = parse_years(text)
     level = degree_level(text) if re.search(r"\b(degree|bachelor|master|ph\.?d|b\.?tech|m\.?tech|mba|doctorate)", text, re.I) else 0
-    if level and not years:
+    if level and years is None:
         return JDRequirement(text=text, type="education", importance="must", skills=skills, degree_level_required=level)
-    if years:
-        return JDRequirement(text=text, type="experience", importance="must", skills=skills, years_required=float(years.group(1)))
+    if years is not None:
+        return JDRequirement(text=text, type="experience", importance="must", skills=skills, years_required=years)
     return JDRequirement(text=text, type="skill", importance="must", skills=skills)
 
 
-def extract_jd_rules(text: str) -> JDExtraction:
-    """Heading and bullet based requirement extraction. Bullets under unknown or ignored headings are skipped
-    unless they look like requirements (mention a taxonomy skill, years, or a degree)."""
+def jd_bullets(text: str) -> List[dict]:
+    """Every bullet of a job description with the importance its heading gives it and whether it sits under a
+    responsibilities heading. Shared by the rule
+    extractor and by the check that reconciles LLM importance with the posting's own headings."""
     current: Optional[str] = "should"
-    reqs: List[JDRequirement] = []
-    for line in text.splitlines():
+    duty = False
+    out: List[dict] = []
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
         is_heading, importance = _heading_importance(line)
         if is_heading:
-            current = importance
+            current, duty = importance, _is_duty_heading(line)
             continue
         m = BULLET_RE.match(line)
-        if not m or current == "ignore":
+        if not m:
+            nxt = next((l for l in lines[i + 1:] if l.strip()), "")
+            if _looks_like_unknown_heading(line) and (line.rstrip().endswith(":") or BULLET_RE.match(nxt)):
+                current, duty = "should", False  # B7: bullets below an unknown heading do not inherit 'must'
+            continue
+        if current == "ignore":
             continue
         body = m.group(1).strip()
-        req = _classify(body)
-        if current is None and not (req.skills or req.type != "skill"):
-            continue
-        req.importance = _inline_importance(body, current or "should")
-        reqs.append(req)
+        out.append({"text": body, "section": current, "duty": duty,
+                    "importance": _inline_importance(body, current or "should")})
+    return out
+
+
+def extract_jd_rules(text: str) -> JDExtraction:
+    """Heading and bullet based requirement extraction. Bullets under unknown headings default to 'should'."""
+    reqs: List[JDRequirement] = []
+    for b in jd_bullets(text):
+        req = _classify(b["text"])
+        req.importance = b["importance"]
+        reqs.append(finalize_requirement(req, duty_hint=b["duty"]))
     return JDExtraction(requirements=reqs)

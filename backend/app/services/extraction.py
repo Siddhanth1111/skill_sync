@@ -6,8 +6,9 @@ from typing import Optional, Tuple
 from ..config import Settings
 from ..schemas import CandidateProfile, JDExtraction, ProfileExtraction
 from .dates import years_of_experience
-from .fallback import degree_level, extract_jd_rules, extract_profile_rules
+from .fallback import degree_level, extract_jd_rules, extract_profile_rules, jd_bullets
 from .llm import LLMClient, LLMInvalidOutput, LLMUnavailable, generate_validated
+from .requirements import _toks, dedupe_requirements, finalize_requirement, promote_if_nothing_scored
 from .taxonomy import contains_skill
 
 log = logging.getLogger(__name__)  # never log resume text or personal data
@@ -23,7 +24,12 @@ JD_SYSTEM = (
     "nice (preferred or bonus). Put related skills in skills. Set years_required or degree_level_required "
     "(1 bachelor, 2 master, 3 PhD) only when stated. Ignore benefits, perks, company blurbs and legal text. "
     "Include EVERY requirement or qualification the posting lists, including preferred and nice-to-have items "
-    "(importance nice). Do not merge separate bullets and do not skip any."
+    "(importance nice). Do not merge separate bullets and do not skip any. "
+    "kind is hard_skill (a named technology, tool or technical concept), experience (years of work), education "
+    "(a degree), soft_skill (communication, teamwork, leadership, stakeholder work) or duty (a task the person "
+    "will perform, such as 'design APIs'). Only hard_skill, experience and education are scored. "
+    "skills_mode is any when the posting accepts any one of several alternatives (A / B / C, A or B), else all. "
+    "For a year range such as 2 to 5 years put the lower number in years_required."
 )
 
 
@@ -91,32 +97,57 @@ def extract_profile(text: str, llm: Optional[LLMClient], settings: Settings) -> 
 
 
 def extract_requirements(jd_text: str, llm: Optional[LLMClient], settings: Settings) -> Tuple[JDExtraction, str]:
-    """Stage 4. Returns (requirements, source). Code, not the LLM, will assign weights from importance."""
+    """Stage 4. Returns (requirements, source). Code, not the LLM, assigns weights from importance."""
     if llm is not None:
         try:
             prompt = "Job description:\n\n" + jd_text[: settings.llm_max_input_chars]
             result = generate_validated(llm, JD_SYSTEM, prompt, JDExtraction, settings.llm_max_retries)
-            cleaned = _clean_requirements(result)
+            cleaned = _clean_requirements(result, jd_text)
             if cleaned.requirements:
                 return cleaned, "llm"
             log.warning("JD LLM returned no usable requirements; using rules")
         except (LLMUnavailable, LLMInvalidOutput) as exc:
             log.warning("JD LLM extraction failed (%s); using rules", type(exc).__name__)
-    return _clean_requirements(extract_jd_rules(jd_text)), "rules"
+    return _clean_requirements(extract_jd_rules(jd_text), jd_text), "rules"
 
 
-def _clean_requirements(result: JDExtraction) -> JDExtraction:
-    """Drop empty and duplicate requirements; keep order."""
-    seen, out = set(), []
+def _match_bullet(req_text: str, bullets: list) -> Optional[dict]:
+    """The posting bullet this requirement came from (the LLM may split one bullet into several requirements)."""
+    sig = _toks(req_text)
+    best, best_score = None, 0.0
+    for b in bullets:
+        bsig = _toks(b["text"])
+        if not sig or not bsig:
+            continue
+        score = len(sig & bsig) / min(len(sig), len(bsig))
+        if score > best_score:
+            best, best_score = b, score
+    return best if best_score >= 0.6 else None
+
+
+def _clean_requirements(result: JDExtraction, jd_text: str = "") -> JDExtraction:
+    """Drop empty requirements, give each a kind / year minimum / any-of mode, take importance from the posting's
+    own headings when the bullet can be found (so weights follow importance, B4), merge near-duplicates."""
+    bullets = jd_bullets(jd_text) if jd_text else []
+    out = []
     for r in result.requirements:
         text = re.sub(r"\s+", " ", r.text).strip()
-        if len(text) < 3 or _normalise(text) in seen:
+        if len(text) < 3:
             continue
-        seen.add(_normalise(text))
-        out.append(r.model_copy(update={"text": text}))
-    return JDExtraction(requirements=out)
+        r = r.model_copy(update={"text": text})
+        b = _match_bullet(text, bullets)
+        if b is not None:
+            r = r.model_copy(update={"importance": b["importance"]})
+        out.append(finalize_requirement(r, duty_hint=bool(b and b["duty"])))
+    return JDExtraction(requirements=promote_if_nothing_scored(dedupe_requirements(out)))
 
 
 def default_weight(importance: str, settings: Settings) -> float:
     """Default weights 3 / 2 / 1 for must / should / nice (configurable)."""
     return float(settings.weights[importance])
+
+
+def weight_for(kind: Optional[str], importance: str, settings: Settings) -> float:
+    """3 / 2 / 1 by importance for scored kinds. Soft skills and duties are listed, not scored: weight 0."""
+    from .requirements import is_scored
+    return default_weight(importance, settings) if is_scored(kind) else 0.0

@@ -9,13 +9,12 @@ from ..db import Candidate, Job, User
 from ..deps import get_db, log_activity, student_only
 from ..schemas import CandidateStatus, MatchIn, WhatIfIn
 from ..services import student as st
-from ..services.chunking import chunk_resume
 from ..services.ingest import save_temp
 from ..services.matrix import req_dicts, score_dict
 from ..services.parsing import validate_upload
 from ..services.ranking import final_score
-from ..services.retrieval import ChunkView
-from ..services.scoring import candidate_total, load_scores, req_views, score_candidate, score_candidate_to_db
+from ..services.scoring import (candidate_total, embed_queries, load_scores, req_views, row_from_score,
+                                score_candidate_to_db, units_for_text)
 
 router = APIRouter(prefix="/student", tags=["student"])
 
@@ -63,11 +62,12 @@ def current_resume(user: User = Depends(student_only), db: Session = Depends(get
 
 
 def _summary(job: Job, rows, settings) -> dict:
-    reqs = req_views(job.requirements)
+    reqs = [q for q in req_views(job.requirements) if q.scored]
     by_id = {r.requirement_id: r for r in rows}
     return {"job_id": job.id, "title": job.title, "final_score": candidate_total(rows, reqs, settings),
             "met": sum(r.status == "met" for r in rows), "partial": sum(r.status == "partial" for r in rows),
             "not_met": sum(r.status == "not_met" for r in rows),
+            "not_verifiable": sum(r.status == "not_verifiable" for r in rows),
             "musts_met": sum(1 for q in reqs if q.importance == "must" and q.id in by_id and by_id[q.id].status == "met"),
             "musts": sum(1 for q in reqs if q.importance == "must")}
 
@@ -80,10 +80,10 @@ def match(body: MatchIn, request: Request, user: User = Depends(student_only), d
     out = []
     for jid in body.job_ids:
         job = _job(db, user, jid)
-        if not job.requirements:
-            continue
         reqs = req_views(job.requirements)
-        qvecs = state.models.embedder.encode_queries([r.text for r in reqs])
+        if not any(r.scored for r in reqs):
+            continue
+        qvecs = embed_queries(reqs, state.models)
         rows = score_candidate_to_db(db, cand, reqs, qvecs, state.models, state.settings)
         out.append(_summary(job, rows, state.settings))
     out.sort(key=lambda r: (-r["final_score"], -r["musts_met"], r["job_id"]))
@@ -102,12 +102,9 @@ def saved_matches(user: User = Depends(student_only), request: Request = None, d
     stored = load_scores(db, [cand.id])[cand.id]
     out = []
     for job in db.scalars(select(Job).where(Job.user_id == user.id)).all():
-        reqs = req_views(job.requirements)
+        reqs = [r for r in req_views(job.requirements) if r.scored]
         if reqs and all(r.id in stored for r in reqs):
-            from ..services.scoring import ScoreRow
-            rows = [ScoreRow(r.id, s.rerank_score, s.final_score, s.status, s.chunk_id, s.similarity, s.quote, s.section, s.entailment, s.verified)
-                    for r in reqs for s in [stored[r.id]]]
-            out.append(_summary(job, rows, settings))
+            out.append(_summary(job, [row_from_score(stored[r.id]) for r in reqs], settings))
     out.sort(key=lambda r: (-r["final_score"], -r["musts_met"], r["job_id"]))
     return out
 
@@ -129,23 +126,23 @@ def whatif(body: WhatIfIn, request: Request, user: User = Depends(student_only),
     """Rescore a temporary copy of the resume with a described project or skill added. Saves nothing."""
     state = request.app.state
     cand, job = _candidate(db, user, body.candidate_id), _job(db, user, body.job_id)
-    reqs = req_views(job.requirements)
+    problem = st.check_addition(body.addition)
+    if problem:
+        raise HTTPException(422, problem)
+    all_reqs = req_views(job.requirements)
+    reqs = [r for r in all_reqs if r.scored]
     stored = load_scores(db, [cand.id])[cand.id]
     if not all(r.id in stored for r in reqs):
         raise HTTPException(409, "Run the match for this job first.")
-    text = st.whatif_text(cand.raw_text or "", body.addition)
-    profile = st.whatif_profile(cand.profile or {}, body.addition)
-    chunks = chunk_resume(text, state.settings.chunk_max_chars)
-    vecs = state.models.embedder.encode_docs([c.text for c in chunks])
-    views = [ChunkView(None, c.idx, c.section, c.text, v) for c, v in zip(chunks, vecs)]
-    qvecs = state.models.embedder.encode_queries([r.text for r in reqs])
-    new_rows = score_candidate(reqs, qvecs, views, text, profile, state.models, state.settings, db)
-    before = final_score([(r.importance, r.weight, stored[r.id].final_score) for r in reqs],
-                         state.settings.met_threshold, state.settings.partial_threshold, state.settings.must_not_met_penalty)
+    text, profile, new_rows = st.whatif_rescore(cand, body.addition, all_reqs, embed_queries(all_reqs, state.models),
+                                                state.models, state.settings, db)
+    before = candidate_total([row_from_score(stored[r.id]) for r in reqs], reqs, state.settings)
     after = candidate_total(new_rows, reqs, state.settings)
     changes = [{"requirement_id": r.id, "text": r.text, "before": stored[r.id].final_score, "after": n.final_score,
                 "status_before": stored[r.id].status, "status_after": n.status}
                for r, n in zip(reqs, new_rows) if abs(n.final_score - stored[r.id].final_score) > 1e-9]
     log_activity(db, user.id, "student_whatif", "job_id=%d" % job.id)
     return {"job_id": job.id, "before": before, "after": after, "delta_points": (after - before) * 100,
-            "changes": changes, "saved": False}
+            "changes": changes, "saved": False, "estimate": True,
+            "note": "An estimate: it assumes the added text is true and evidence-style. Nothing is saved, and a "
+                    "statement you cannot back up with a real project or result will not survive an interview."}

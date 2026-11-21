@@ -70,16 +70,17 @@ export default function RoadmapPage() {
           })}
 
           <Card>
-            <CardHeader title="What if...?" description="Describe a project or skill you could add. Your resume is rescored as if it were there. Nothing is saved." />
+            <CardHeader title="What if...? (an estimate)" description="Describe in a full sentence something you built or did, ideally with a result. Your resume is rescored as if it were there, assuming it is true. Nothing is saved." />
             <form onSubmit={simulate} className="flex flex-col gap-3 p-4">
-              <Textarea rows={3} required minLength={5} value={addition} onChange={(e) => setAddition(e.target.value)} aria-label="Project or skill to add"
+              <Textarea rows={3} required minLength={20} value={addition} onChange={(e) => setAddition(e.target.value)} aria-label="Project or skill to add"
                 placeholder="Built a Tableau dashboard analysing 5 years of sales data" />
-              <div><Button type="submit" leftIcon={<FlaskConical />} loading={busy} disabled={addition.trim().length < 5}>Simulate</Button></div>
+              <div><Button type="submit" leftIcon={<FlaskConical />} loading={busy} disabled={addition.trim().split(/\s+/).length < 6}>Simulate</Button></div>
             </form>
             {sim && (
               <div className="border-t border-border p-4">
                 <p className="text-sm">Score <b className="tabular-nums">{num(sim.before * 100)}</b> to <b className="tabular-nums">{num(sim.after * 100)}</b>{' '}
                   <Badge color={sim.delta_points > 0 ? 'success' : 'neutral'}>{sim.delta_points >= 0 ? '+' : ''}{num(sim.delta_points)} points</Badge> <span className="text-xs text-muted-foreground">Nothing was saved.</span></p>
+                  {sim.note && <p className="mt-1 text-xs text-muted-foreground">{sim.note}</p>}
                 {sim.changes.length > 0 ? <ul className="mt-2 flex flex-col gap-1 text-sm">{sim.changes.map((c) => <li key={c.requirement_id} className="flex gap-2"><span className="w-24 shrink-0 tabular-nums text-muted-foreground">{num(c.before * 100, 0)} to {num(c.after * 100, 0)}</span>{c.text}</li>)}</ul>
                   : <p className="mt-2 text-sm text-muted-foreground">No requirement changed. The addition does not touch what this job asks for.</p>}
               </div>

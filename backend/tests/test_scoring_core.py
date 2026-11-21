@@ -4,8 +4,8 @@ from app.config import Settings
 from app.services.embeddings import HashEmbedder
 from app.services.ranking import final_score, gaps, rank_candidates, status_of
 from app.services.rerank import CachedReranker, LexicalReranker
-from app.services.retrieval import ChunkView, top_k
-from app.services.scoring import ReqView, requirement_score
+from app.services.retrieval import ChunkView, Retrieved, top_k
+from app.services.scoring import ReqView, score_education, score_experience, score_skill
 
 S = Settings(model_backend="light")
 TH = {"met": 0.6, "partial": 0.3, "must_penalty": 0.9}
@@ -26,34 +26,85 @@ def test_top_k_orders_by_cosine_and_reports_similarity():
     texts = ["built python services", "cooked pasta at home", "python and sql pipelines"]
     chunks = [ChunkView(i, i, "experience", t, v) for i, (t, v) in enumerate(zip(texts, e.encode_docs(texts)))]
     q = e.encode_queries(["python sql"])[0]
-    top = top_k(q, chunks, 3)
-    assert [c.id for c, _ in top][0] == 2 and top[0][1] >= top[1][1] >= top[2][1]
+    top = top_k(q, chunks, 3)  # no query text: dense only
+    assert [t.chunk.id for t in top][0] == 2 and top[0].similarity >= top[1].similarity >= top[2].similarity
     assert len(top_k(q, chunks, 2)) == 2 and top_k(q, [], 3) == []
 
 
-def test_skill_score_all_none_some():
-    profile = {"skills": ["python"]}
+def _cands(*items):
+    """(unit text, section, rerank) -> the (Retrieved, rerank) pairs score_skill reads."""
+    out = []
+    for i, (text, section, rr) in enumerate(items):
+        cv = ChunkView(i, i, section, text, np.zeros(2, dtype=np.float32))
+        out.append((Retrieved(cv, 0.5, 0.03, i + 1, None), rr))
+    return out
+
+
+def test_skill_is_scored_from_evidence_not_from_the_profile_list():
+    """D1: the old rule gave 0.85 whenever the skill was in the profile, whatever the quote said."""
     r = req("skill", "Python and SQL", {"skills": ["python", "sql"]})
-    both = requirement_score(r, {"skills": ["python", "sql"]}, "", 0.1, S)
-    none = requirement_score(r, {"skills": []}, "no relevant words", 0.9, S)
-    some = requirement_score(r, profile, "", 0.2, S)
-    assert abs(both - 0.85) < 1e-9
-    assert none <= 0.45 + 1e-9 and abs(none - 0.45) < 1e-9  # reranker 0.9 capped at 0.45
+    both, show, _ = score_skill(r, _cands(("Built Python and SQL services", "experience", 0.1)), S)
+    none, _, _ = score_skill(r, _cands(("cooked pasta", "experience", 0.9)), S)
+    some, _, _ = score_skill(r, _cands(("Built Python services", "experience", 0.2)), S)
+    assert abs(both - S.skill_present_score) < 1e-9 and show == 0
+    assert abs(none - S.skill_absent_cap) < 1e-9  # reranker 0.9 is capped when the skill is not in any evidence
     assert none < some < both
 
 
-def test_skill_without_taxonomy_uses_reranker_score():
-    assert requirement_score(req("skill", "Strong communication"), {}, "", 0.7, S) == 0.7
+def test_listed_skill_scores_below_a_skill_shown_in_work():
+    r = req("skill", "Kafka", {"skills": ["kafka"]})
+    listed, _, t1 = score_skill(r, _cands(("Python, Kafka, Spark", "skills", 0.3)), S)
+    shown, _, t2 = score_skill(r, _cands(("Ran Kafka jobs", "experience", 0.3)), S)
+    assert listed == S.skill_listed_score < shown == S.skill_present_score
+    assert t1["skills"]["kafka"] == "listed" and t2["skills"]["kafka"] == "evidence"
 
 
-def test_experience_and_education_ratios_capped():
-    e = req("experience", meta={"years_required": 4})
-    assert requirement_score(e, {"years_experience": 2}, "", 0, S) == 0.5
-    assert requirement_score(e, {"years_experience": 10}, "", 0, S) == 1.0
-    d = req("education", meta={"degree_level_required": 2})
-    assert requirement_score(d, {"education_level": 1}, "", 0, S) == 0.5
-    assert requirement_score(d, {"education_level": 3}, "", 0, S) == 1.0
-    assert requirement_score(req("experience"), {"years_experience": 9}, "", 0.33, S) == 0.33  # no years stated
+def test_any_of_takes_the_best_alternative_and_all_of_the_average():
+    units = _cands(("Ran Kafka jobs", "experience", 0.3))
+    any_r = req("skill", "Kafka or RabbitMQ", {"skills": ["kafka", "rabbitmq"], "skills_mode": "any"})
+    all_r = req("skill", "Kafka and RabbitMQ", {"skills": ["kafka", "rabbitmq"], "skills_mode": "all"})
+    assert score_skill(any_r, units, S)[0] == S.skill_present_score  # B3
+    assert score_skill(all_r, units, S)[0] < S.skill_present_score
+
+
+def test_related_tool_is_partial_at_most_and_other_language_is_not_met():
+    """From the plan's paraphrase table: RabbitMQ for Kafka is partial at most; Perl for Python is not met."""
+    kafka = req("skill", "Kafka", {"skills": ["kafka"]})
+    s, _, t = score_skill(kafka, _cands(("Built streaming ingestion with RabbitMQ", "experience", 0.1)), S)
+    assert t["skills"]["kafka"] == "related_only" and S.partial_threshold <= s < S.met_threshold
+    py = req("skill", "Python", {"skills": ["python"]})
+    s, _, t = score_skill(py, _cands(("Wrote automation scripts in Perl", "experience", 0.1)), S)
+    assert t["skills"]["python"] == "not_found" and s < S.partial_threshold
+
+
+def test_a_named_technique_is_partial_not_met():
+    ml = req("skill", "Machine learning", {"skills": ["machine learning"]})
+    s, show, t = score_skill(ml, _cands(("Trained a logistic regression model to predict churn", "experience", 0.0)), S)
+    assert t["skills"]["machine learning"] == "technique_only" and show == 0
+    assert S.partial_threshold <= s < S.met_threshold
+
+
+def test_skill_without_ontology_entry_uses_reranker_score():
+    r = req("skill", "Zorblax mastery", {"skills": []})
+    assert score_skill(r, _cands(("something", "experience", 0.7)), S)[0] == 0.7
+
+
+def test_experience_uses_years_with_the_skill_and_education_level_and_field():
+    e = req("experience", "4 years of Python", {"skills": ["python"], "years_required": 4, "years_min": 4})
+    assert score_experience(e, {"years_experience": 10, "skill_years": {"python": 2}}, 1, S)[0] == 0.5  # D6
+    assert score_experience(e, {"years_experience": 10, "skill_years": {"python": 9}}, 1, S)[0] == 1.0
+    # skill shown but no dated role links to it: years cannot be verified, so at most partial
+    assert score_experience(e, {"years_experience": 10, "skill_years": {}}, 1, S)[0] <= S.skill_absent_cap
+    total_only = req("experience", "4 years of backend experience", {"years_min": 4})
+    assert score_experience(total_only, {"years_experience": 2}, 0, S)[0] == 0.5
+    d = req("education", "Master's in Computer Science", {"degree_level_required": 2})
+    assert score_education(d, {"education_level": 1, "education": [{"degree": "B.Tech Computer Science"}]}, S)[0] == 0.5
+    assert score_education(d, {"education_level": 3, "education": [{"degree": "PhD Computer Science"}]}, S)[0] == 1.0
+    # D7: right level, wrong field, and the equivalence rule
+    wrong = score_education(d, {"education_level": 2, "education": [{"degree": "MA History"}]}, S)
+    assert abs(wrong[0] - S.field_mismatch_factor) < 1e-9 and wrong[1]["field_mismatch"]
+    eq = req("education", "Bachelor's degree or equivalent experience", {"degree_level_required": 1})
+    assert score_education(eq, {"education_level": 0, "years_experience": 6}, S)[0] == 0.8
 
 
 def test_status_thresholds():
@@ -109,5 +160,25 @@ def test_rerank_cache_avoids_repeat_model_calls(settings):
 def test_experience_requirement_without_years_scores_by_skill_mention():
     """Found with real Llama: 'Experience with Kafka' came back typed as experience, with no years."""
     r = req("experience", "Experience with Kafka", {"skills": ["kafka"], "years_required": None})
-    assert abs(requirement_score(r, {"skills": ["Kafka"]}, "", 0.1, S) - 0.85) < 1e-9
-    assert requirement_score(r, {"skills": []}, "nothing relevant", 0.9, S) <= 0.45 + 1e-9
+    assert r.years_required is None
+    assert score_skill(r, _cands(("Ran Kafka jobs", "experience", 0.1)), S)[0] == S.skill_present_score
+    assert score_skill(r, _cands(("nothing relevant", "experience", 0.9)), S)[0] <= S.skill_absent_cap + 1e-9
+
+
+def test_tiers_group_close_scores_and_never_split_on_a_point():
+    reqs = [{"id": 1, "importance": "must", "weight": 1}]
+    m = {1: {1: 0.90}, 2: {1: 0.89}, 3: {1: 0.60}, 4: {1: 0.595}}
+    ranked = rank_candidates(reqs, m, {**TH, "tier_band": 0.02})
+    assert [r["tier"] for r in ranked] == [1, 1, 2, 2] and all(r["tied"] for r in ranked)
+    assert [r["rank"] for r in ranked] == [1, 2, 3, 4]  # order stays deterministic, the tier says it is not meaningful
+
+
+def test_unverifiable_must_is_not_penalised_and_zero_weight_is_ignored():
+    items = [("must", 3, 0.0, True), ("should", 3, 1.0, False)]
+    assert abs(final_score(items, 0.6, 0.3, 0.9) - 0.5) < 1e-12  # E1: no 0.9 penalty when evidence was unreadable
+    reqs = [{"id": 1, "importance": "must", "weight": 3}, {"id": 2, "importance": "must", "weight": 0}]
+    r = rank_candidates(reqs, {1: {1: 1.0, 2: 0.0}}, TH)[0]
+    assert (r["musts"], r["musts_met"], r["not_met"]) == (1, 1, 0) and r["final_score"] == 1.0  # B1/E3
+    assert gaps(reqs, {1: 1.0, 2: 0.0}) == []
+
+

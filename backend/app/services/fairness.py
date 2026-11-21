@@ -7,114 +7,22 @@ from typing import Dict, List, Optional, Sequence
 import numpy as np
 
 from ..config import Settings
-from .chunking import chunk_resume, heading_section
-from .fallback import EMAIL_RE, PHONE_RE
-from .ranking import final_score
-from .retrieval import ChunkView
-from .scoring import ReqView, candidate_total, score_candidate
+from .blind import (NEUTRAL, TO_FEMALE, TO_MALE, _name_parts, _swap_words, blind_profile, blind_text,  # noqa: F401
+                    swap_date_format, swap_school, swap_variant)
+from .ranking import final_score  # noqa: F401
+from .scoring import ReqView, candidate_total, score_candidate, units_for_text
 
-LIMITS = ("These tests use synthetic group labels and simple text transformations. They do not cover proxies "
+LIMITS = ("These tests use consented or demo group labels and simple text transformations. They do not cover proxies "
           "such as school, address or employment gaps, and they do not prove that a system is fair. Treat flags "
           "as prompts for human review.")
 
-URL_RE = re.compile(r"(?:https?://|www\.)\S+|\b(?:linkedin|github|gitlab|twitter|medium)\.com/\S*", re.I)
-POSTCODE_RE = re.compile(r"\b[A-Z]{1,2}\d[A-Z\d]? ?\d[A-Z]{2}\b|\b\d{5}(?:-\d{4})?\b|\b\d{6}\b")
-SCHOOL_RE = re.compile(
-    r"\b(?:[A-Z][\w&.'-]*\s+){0,4}(?:University|College|Institute|Polytechnic|Academy|School)(?:\s+of(?:\s+[A-Z][\w&.'-]*){1,4})?"
-    r"|\b(?:University|Institute|College|School)\s+of(?:\s+[A-Z][\w&.'-]*){1,4}", re.UNICODE)
-YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
-
-NEUTRAL = {"he": "they", "she": "they", "him": "them", "her": "them", "his": "their", "hers": "theirs",
-           "himself": "themself", "herself": "themself", "mr": "", "mrs": "", "ms": "", "miss": ""}
-TO_MALE = {"she": "he", "her": "his", "hers": "his", "herself": "himself", "he": "he", "him": "him", "his": "his", "himself": "himself"}
-TO_FEMALE = {"he": "she", "him": "her", "his": "her", "himself": "herself", "she": "she", "her": "her", "hers": "hers", "herself": "herself"}
-NAMES_MALE = ["James", "Michael", "Robert", "David", "William", "Daniel", "Thomas", "Mark"]
-NAMES_FEMALE = ["Mary", "Patricia", "Jennifer", "Linda", "Elizabeth", "Susan", "Karen", "Nancy"]
-
-
-_NOT_POSSESSIVE_NEXT = {"to", "for", "with", "and", "in", "on", "at", "by", "from", "that", "as", "when", "while", "or",
-                        "but", "about", "if", "so", "than", "because", "after", "before", "of"}
-
-
-def _swap_words(text: str, mapping: Dict[str, str]) -> str:
-    if mapping is NEUTRAL:
-        # "her" is ambiguous: "her work" (possessive, -> their) vs "told her" (object, -> them)
-        def her(m):
-            nxt = (m.group(2) or "").lower()
-            word = "their" if nxt and nxt not in _NOT_POSSESSIVE_NEXT else "them"
-            return word.capitalize() if m.group(1)[0].isupper() else word
-        text = re.sub(r"\b(her)\b(?:\s+([A-Za-z]+))?", lambda m: her(m) + (m.group(0)[len(m.group(1)):] if m.group(2) else ""), text, flags=re.I)
-
-    def repl(m):
-        w = m.group(0)
-        new = mapping.get(w.lower())
-        if new is None:
-            return w
-        return new.capitalize() if w[0].isupper() else new
-    return re.sub(r"\b[A-Za-z]+\b", repl, text)
-
-
-def _name_parts(name: Optional[str]) -> List[str]:
-    return [p for p in re.split(r"\s+", name or "") if len(p) >= 2]
-
-
-def blind_text(text: str, profile: dict) -> str:
-    """Remove name, contact details, links, postcode, school names and education years; make pronouns neutral."""
-    t = URL_RE.sub("", text)
-    t = EMAIL_RE.sub("", t)
-
-    def drop_phone(m):
-        digits = re.sub(r"\D", "", m.group(0))
-        return "" if 8 <= len(digits) <= 15 and not re.fullmatch(r"(19|20)\d{2}(19|20)?\d{0,2}", digits) else m.group(0)
-
-    t = PHONE_RE.sub(drop_phone, t)
-    name = (profile or {}).get("name")
-    if name:
-        t = re.sub(re.escape(name), "", t, flags=re.I)
-        for part in _name_parts(name):
-            t = re.sub(r"\b%s\b" % re.escape(part), "", t, flags=re.I)
-    t = POSTCODE_RE.sub("", t)
-    schools = [e.get("institution") for e in (profile or {}).get("education", []) if e.get("institution")]
-    for s in sorted(schools, key=len, reverse=True):
-        t = re.sub(re.escape(s), "", t, flags=re.I)
-    t = SCHOOL_RE.sub("", t)
-    out, section = [], None
-    for line in t.split("\n"):
-        h = heading_section(line)
-        if h:
-            section = h
-        elif section == "education":
-            line = YEAR_RE.sub("", line)
-        out.append(line)
-    return _swap_words("\n".join(out), NEUTRAL)
-
-
-def blind_profile(profile: dict) -> dict:
-    p = dict(profile or {})
-    p.update(name=None, email=None, phone=None)
-    p["education"] = [{**e, "institution": None, "year": None} for e in p.get("education", [])]
-    return p
-
-
-def swap_variant(text: str, profile: dict, target: str, i: int) -> str:
-    """Counterfactual copy: first name replaced by one from the target list, pronouns switched to the target."""
-    name = (profile or {}).get("name")
-    parts = _name_parts(name)
-    t = text
-    if parts:
-        pool = NAMES_MALE if target == "male" else NAMES_FEMALE
-        new_first = pool[i % len(pool)]
-        t = re.sub(r"\b%s\b" % re.escape(parts[0]), new_first, t)
-    return _swap_words(t, TO_MALE if target == "male" else TO_FEMALE)
-
-
 def rescore_text(text: str, profile: dict, reqs: Sequence[ReqView], qvecs: np.ndarray, models,
-                 settings: Settings, db=None) -> float:
-    """Chunk, embed and score a temporary text. Nothing is stored. Returns the 0..1 final score."""
-    chunks = chunk_resume(text, settings.chunk_max_chars)
-    vecs = models.embedder.encode_docs([c.text for c in chunks])
-    views = [ChunkView(None, c.idx, c.section, c.text, v) for c, v in zip(chunks, vecs)]
-    return candidate_total(score_candidate(reqs, qvecs, views, text, profile, models, settings, db), reqs, settings)
+                 settings: Settings, db=None, blind: Optional[bool] = None) -> float:
+    """Build units for a temporary text and score it through the live pipeline. Nothing is stored. `blind` forces
+    blind scoring on or off; None follows settings.blind_scoring. Returns the 0..1 final score."""
+    cfg = settings if blind is None else settings.model_copy(update={"blind_scoring": blind})
+    st, views, prof = units_for_text(text, profile, models, cfg)
+    return candidate_total(score_candidate(reqs, qvecs, views, st, prof, models, cfg, db), reqs, cfg)
 
 
 def _ranks(scores: Dict[int, float]) -> Dict[int, int]:
@@ -123,10 +31,10 @@ def _ranks(scores: Dict[int, float]) -> Dict[int, int]:
 
 
 def blind_audit(cands: Sequence[dict], reqs, qvecs, models, settings, db=None) -> dict:
-    """cands: dicts with id, name, text, profile, baseline (0..1 stored score)."""
-    normal = {c["id"]: c["baseline"] for c in cands}
-    blind = {c["id"]: rescore_text(blind_text(c["text"], c["profile"]), blind_profile(c["profile"]), reqs, qvecs,
-                                   models, settings, db) for c in cands}
+    """cands: dicts with id, name, text (original resume), profile. Scores every resume twice through the same
+    pipeline, once with identity details present and once with them removed, and compares the order."""
+    normal = {c["id"]: rescore_text(c["text"], c["profile"], reqs, qvecs, models, settings, db, blind=False) for c in cands}
+    blind = {c["id"]: rescore_text(c["text"], c["profile"], reqs, qvecs, models, settings, db, blind=True) for c in cands}
     r0, r1 = _ranks(normal), _ranks(blind)
     rows = [{"candidate_id": c["id"], "name": c["name"], "normal": normal[c["id"]] * 100, "blind": blind[c["id"]] * 100,
              "change": (blind[c["id"]] - normal[c["id"]]) * 100, "rank_normal": r0[c["id"]], "rank_blind": r1[c["id"]]}
@@ -134,29 +42,62 @@ def blind_audit(cands: Sequence[dict], reqs, qvecs, models, settings, db=None) -
     changes = [r["change"] for r in rows]
     return {"candidates": rows, "avg_change": float(np.mean(changes)), "avg_abs_change": float(np.mean(np.abs(changes))),
             "rank_changes": sum(1 for r in rows if r["rank_normal"] != r["rank_blind"]),
+            "scoring_mode": "blind" if settings.blind_scoring else "identity",
             "headline": {"label": "candidates whose rank changed", "value": sum(1 for r in rows if r["rank_normal"] != r["rank_blind"])},
             "limits": LIMITS}
 
 
+VARIANTS = ("male", "female", "school", "date_format")
+
+
+def _variant_text(c: dict, name: str, i: int) -> str:
+    if name in ("male", "female"):
+        return swap_variant(c["text"], c["profile"], name, i)
+    if name == "school":
+        return swap_school(c["text"], c["profile"], i)
+    return swap_date_format(c["text"])
+
+
 def counterfactual_audit(cands: Sequence[dict], reqs, qvecs, models, settings, db=None) -> dict:
+    """Change one thing that should not matter (name and pronouns, school, date format) and report the score change
+    through the live pipeline. With blind scoring on, name, pronoun and school changes should give zero change."""
     threshold = settings.counterfactual_threshold_points
     rows = []
     for i, c in enumerate(cands):
         deltas = {}
-        for target in ("male", "female"):
-            s = rescore_text(swap_variant(c["text"], c["profile"], target, i), c["profile"], reqs, qvecs, models, settings, db)
-            deltas[target] = (s - c["baseline"]) * 100
+        for v in VARIANTS:
+            s = rescore_text(_variant_text(c, v, i), c["profile"], reqs, qvecs, models, settings, db)
+            deltas[v] = (s - c["baseline"]) * 100
         worst = max(deltas.values(), key=abs)
         rows.append({"candidate_id": c["id"], "name": c["name"], "change_male_variant": deltas["male"],
-                     "change_female_variant": deltas["female"], "max_abs_change": abs(worst), "flagged": abs(worst) > threshold})
+                     "change_female_variant": deltas["female"], "change_school_variant": deltas["school"],
+                     "change_date_format_variant": deltas["date_format"], "max_abs_change": abs(worst),
+                     "flagged": abs(worst) > threshold})
     flagged = sum(1 for r in rows if r["flagged"])
     return {"candidates": rows, "threshold_points": threshold, "flagged_count": flagged,
+            "variants": list(VARIANTS), "scoring_mode": "blind" if settings.blind_scoring else "identity",
             "max_abs_change": max((r["max_abs_change"] for r in rows), default=0.0),
             "headline": {"label": "candidates flagged", "value": flagged}, "limits": LIMITS}
 
 
-def impact_audit(finals: Dict[int, float], groups: Dict[int, str], top_n: int, settings: Settings) -> dict:
-    """Selection = in the top N by rule-based score. Impact ratio = group rate / highest group rate."""
+def wilson(k: int, n: int, z: float = 1.96) -> tuple:
+    """95% Wilson interval for a selection rate (small groups give wide intervals, which is the point)."""
+    if n == 0:
+        return (0.0, 0.0)
+    p = k / n
+    d = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / d
+    half = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
+    return (max(0.0, float(centre - half)), min(1.0, float(centre + half)))
+
+
+MIN_GROUP_SIZE = 10
+
+
+def impact_audit(finals: Dict[int, float], groups: Dict[int, str], top_n: int, settings: Settings,
+                 demo: bool = False) -> dict:
+    """Selection = in the top N by rule-based score. Impact ratio = group rate / highest group rate. Group labels
+    must be consented and self-reported, or the run is marked as a demo (F1)."""
     ids = [c for c in finals if c in groups]
     order = sorted(ids, key=lambda c: (-finals[c], c))
     selected = {c: int(i < top_n) for i, c in enumerate(order)}
@@ -164,8 +105,10 @@ def impact_audit(finals: Dict[int, float], groups: Dict[int, str], top_n: int, s
     stats = {}
     for g in labels:
         members = [c for c in ids if groups[c] == g]
-        stats[g] = {"n": len(members), "selected": sum(selected[c] for c in members),
-                    "rate": sum(selected[c] for c in members) / len(members)}
+        k = sum(selected[c] for c in members)
+        lo, hi = wilson(k, len(members))
+        stats[g] = {"n": len(members), "selected": k, "rate": k / len(members), "rate_ci_low": lo, "rate_ci_high": hi,
+                    "small_group": len(members) < MIN_GROUP_SIZE}
     top = max((s["rate"] for s in stats.values()), default=0.0)
     for s in stats.values():
         s["impact_ratio"] = (s["rate"] / top) if top > 0 else None
@@ -176,7 +119,14 @@ def impact_audit(finals: Dict[int, float], groups: Dict[int, str], top_n: int, s
     return {"top_n": top_n, "groups": stats, "ratio_threshold": settings.impact_ratio_threshold,
             "demographic_parity_difference": dpd, "n_candidates": len(ids),
             "flagged_groups": [g for g, s in stats.items() if s["flagged"]],
-            "headline": {"label": "lowest impact ratio", "value": min(ratios) if ratios else None}, "limits": LIMITS}
+            "small_groups": [g for g, s in stats.items() if s["small_group"]],
+            "labels_source": "demo" if demo else "consented",
+            "warning": ("DEMO: these group labels are not real data. The numbers show how the audit works, nothing more."
+                        if demo else ("Some groups have fewer than %d candidates; their rates carry wide intervals and "
+                                      "should not be read as findings." % MIN_GROUP_SIZE
+                                      if any(s["small_group"] for s in stats.values()) else None)),
+            "headline": {"label": "lowest impact ratio" + (" (demo)" if demo else ""), "value": min(ratios) if ratios else None},
+            "limits": LIMITS}
 
 
 def _fairlearn_dpd(y: Sequence[int], groups: Sequence[str]) -> Optional[float]:

@@ -81,8 +81,10 @@ def _h(s: str) -> str:
 class CachedReranker:
     """Wraps a reranker with the DB cache. Without a session it just passes through."""
 
-    def __init__(self, reranker, db: Optional[Session] = None):
+    def __init__(self, reranker, db: Optional[Session] = None, version: str = ""):
         self.reranker, self.db = reranker, db
+        # The key includes the pipeline version: new query wording or unit format must not reuse old scores (D9).
+        self.model_key = "%s|%s" % (reranker.name, version) if version else reranker.name
 
     def score(self, pairs: Sequence[Tuple[str, str]]) -> List[float]:
         if self.db is None or not pairs:
@@ -90,7 +92,7 @@ class CachedReranker:
         keys = [(_h(r), _h(s)) for r, s in pairs]
         have: Dict[Tuple[str, str], float] = {}
         rows = self.db.scalars(select(RerankCache).where(
-            RerankCache.model == self.reranker.name, RerankCache.req_hash.in_({k[0] for k in keys}),
+            RerankCache.model == self.model_key, RerankCache.req_hash.in_({k[0] for k in keys}),
             RerankCache.seg_hash.in_({k[1] for k in keys})))
         for row in rows:
             have[(row.req_hash, row.seg_hash)] = row.score
@@ -100,6 +102,6 @@ class CachedReranker:
             for i, sc in zip(missing, fresh):
                 if keys[i] not in have:
                     have[keys[i]] = sc
-                    self.db.add(RerankCache(req_hash=keys[i][0], seg_hash=keys[i][1], model=self.reranker.name, score=sc))
+                    self.db.add(RerankCache(req_hash=keys[i][0], seg_hash=keys[i][1], model=self.model_key, score=sc))
             self.db.commit()
         return [have[k] for k in keys]

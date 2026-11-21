@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from ..db import Candidate, Chunk, Feedback, Job, User
 from ..deps import get_db, owned_job, recruiter_only
-from ..services.matrix import job_candidates, req_dicts
+from ..services.matrix import job_candidates, req_dicts, unverifiable_flags
 from ..services.ranking import rank_candidates, status_of, thresholds
 from ..services.scoring import load_scores
 
@@ -26,12 +26,13 @@ def _tier(score: float) -> str:
 
 
 def _job_stats(db: Session, job: Job, settings) -> Optional[dict]:
-    reqs = req_dicts(job)
+    all_reqs = req_dicts(job)
+    reqs = [r for r in all_reqs if float(r["weight"]) > 0]  # soft skills and duties are listed, not scored
     cands = {c.id: c for c in job_candidates(db, job)}
     loaded = load_scores(db, list(cands))
     matrix = {cid: {rid: s.final_score for rid, s in rows.items()} for cid, rows in loaded.items() if rows}
     th = thresholds(settings)
-    ranked = rank_candidates(reqs, matrix, th)
+    ranked = rank_candidates(reqs, matrix, th, unverifiable_flags(loaded))
     finals = [r["final_score"] for r in ranked]
     bins = [0] * 10
     for f in finals:
@@ -39,25 +40,37 @@ def _job_stats(db: Session, job: Job, settings) -> Optional[dict]:
     tiers = Counter(_tier(f) for f in finals)
     coverage = []
     for r in reqs:
-        scored = [m[r["id"]] for m in matrix.values() if r["id"] in m]
-        met = sum(1 for s in scored if status_of(s, th["met"], th["partial"]) == "met")
+        sts = [loaded[cid][r["id"]].status for cid in matrix if r["id"] in loaded[cid]]
+        met, partial = sts.count("met"), sts.count("partial")
         coverage.append({"requirement_id": r["id"], "text": r["text"], "importance": r["importance"], "type": r["type"],
-                         "met": met, "partial": sum(1 for s in scored if status_of(s, th["met"], th["partial"]) == "partial"),
-                         "not_met": len(scored) - met - sum(1 for s in scored if status_of(s, th["met"], th["partial"]) == "partial"),
-                         "share_met": (met / len(scored)) if scored else 0.0})
+                         "met": met, "partial": partial, "not_met": len(sts) - met - partial,
+                         "share_met": (met / len(sts)) if sts else 0.0})
     one_away = []
     for cid, m in matrix.items():
-        sts = {rid: status_of(s, th["met"], th["partial"]) for rid, s in m.items()}
+        sts = {rid: loaded[cid][rid].status for rid in m if rid in {r["id"] for r in reqs}}
         unmet = [rid for rid, st in sts.items() if st != "met"]
         if len(unmet) == 1 and len(sts) == len(reqs):
             req = next(r for r in reqs if r["id"] == unmet[0])
             c = cands[cid]
             one_away.append({"candidate_id": cid, "name": (c.profile or {}).get("name") or c.filename, "missing": req["text"],
                              "importance": req["importance"]})
+    cells = [s for rows in loaded.values() for s in rows.values()]
+    shown = [s for s in cells if s.quote or s.verified is not None]
+    quality = {  # model-quality and evidence-reuse metrics (reported as measured on this job, not as accuracy)
+        "cells": len(cells),
+        "verified_rate": (sum(1 for s in cells if s.verified) / len(cells)) if cells else None,
+        "evidence_reuse_rate": (sum(1 for s in cells if s.hub) / len(cells)) if cells else None,
+        "unverifiable_rate": (sum(1 for s in cells if s.status == "not_verifiable") / len(cells)) if cells else None,
+        "weak_evidence_rate": (sum(1 for s in cells if s.verified and s.entailment is not None
+                                   and s.entailment < settings.entailment_threshold) / len(cells)) if cells else None,
+        "pipeline_versions": sorted({s.pipeline_version for s in cells if s.pipeline_version}),
+    }
     return {"job_id": job.id, "title": job.title, "parsed": len(cands), "scored": len(matrix),
+            "scored_requirements": len(reqs), "unscored_requirements": len(all_reqs) - len(reqs),
             "mean_score": float(np.mean(finals)) if finals else None, "top_score": max(finals) if finals else None,
             "histogram": [{"from": i / 10, "to": (i + 1) / 10, "count": c} for i, c in enumerate(bins)],
-            "tiers": {name: tiers.get(name, 0) for name, _ in TIERS}, "coverage": coverage, "one_away": one_away}
+            "tiers": {name: tiers.get(name, 0) for name, _ in TIERS}, "coverage": coverage, "one_away": one_away,
+            "quality": quality}
 
 
 @router.get("/jobs/{job_id}/analytics")
@@ -83,6 +96,8 @@ def overview(request: Request, user: User = Depends(recruiter_only), db: Session
             else:
                 strengths[key] += cov["met"]
         for r in job.requirements:
+            if float(r.weight) <= 0:
+                continue
             for s in (r.meta or {}).get("skills", []) or []:
                 skills[s.lower()] += 1
     cand_ids = [c.id for c in db.scalars(select(Candidate).where(Candidate.user_id == user.id, Candidate.job_id.isnot(None))).all()]
@@ -104,20 +119,20 @@ def _safe(cell) -> str:
 def export_csv(request: Request, job: Job = Depends(owned_job), _: User = Depends(recruiter_only), db: Session = Depends(get_db)):
     """Ranking with per-requirement scores, using the job's stored weights."""
     settings = request.app.state.settings
-    reqs = req_dicts(job)
+    reqs = [r for r in req_dicts(job) if float(r["weight"]) > 0]
     cands = {c.id: c for c in job_candidates(db, job)}
     loaded = load_scores(db, list(cands))
     matrix = {cid: {rid: s.final_score for rid, s in rows.items()} for cid, rows in loaded.items() if rows}
-    ranked = rank_candidates(reqs, matrix, thresholds(settings))
+    ranked = rank_candidates(reqs, matrix, thresholds(settings), unverifiable_flags(loaded))
     if not ranked:
         raise HTTPException(409, "Score this job before exporting.")
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["rank", "name", "file", "score_0_100", "met", "partial", "not_met", "musts_met"] + ["req_%d: %s" % (r["idx"] + 1, r["text"][:60]) for r in reqs])
+    w.writerow(["rank", "tier", "name", "file", "score_0_100", "met", "partial", "not_met", "not_verifiable", "musts_met", "musts"] + ["req_%d: %s" % (r["idx"] + 1, r["text"][:60]) for r in reqs])
     for r in ranked:
         c = cands[r["candidate_id"]]
-        w.writerow([r["rank"], _safe((c.profile or {}).get("name")), _safe(c.filename), "%.1f" % (r["final_score"] * 100), r["met"],
-                    r["partial"], r["not_met"], r["musts_met"]] + ["%.2f" % matrix[c.id][q["id"]] if q["id"] in matrix[c.id] else "" for q in reqs])
+        w.writerow([r["rank"], r["tier"], _safe((c.profile or {}).get("name")), _safe(c.filename), "%.1f" % (r["final_score"] * 100),
+                    r["met"], r["partial"], r["not_met"], r["not_verifiable"], r["musts_met"], r["musts"]] + ["%.2f" % matrix[c.id][q["id"]] if q["id"] in matrix[c.id] else "" for q in reqs])
     return Response(buf.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": 'attachment; filename="skillsync-job-%d-ranking.csv"' % job.id})
 

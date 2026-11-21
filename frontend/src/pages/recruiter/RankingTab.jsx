@@ -5,7 +5,7 @@ import { api } from '../../api/index.js'
 import { useApi, usePolling } from '../../api/hooks.js'
 import { rankCandidates } from '../../lib/rank.js'
 import { Button } from '../../components/ui/Button.jsx'
-import { Badge, ImportanceBadge } from '../../components/ui/Badge.jsx'
+import { Badge, ImportanceBadge, isScoredKind } from '../../components/ui/Badge.jsx'
 import { Card, CardHeader } from '../../components/ui/Card.jsx'
 import { ScoreBar } from '../../components/ui/Charts.jsx'
 import { Alert, EmptyState, ErrorState, Progress, SkeletonRows } from '../../components/ui/Feedback.jsx'
@@ -53,7 +53,9 @@ export default function RankingTab() {
   const ranked = useMemo(() => {
     if (!m) return []
     const matrixScores = Object.fromEntries(scored.map((c) => [c.id, Object.fromEntries(Object.entries(c.scores).map(([k, v]) => [k, v.score]))]))
-    return rankCandidates(reqs, matrixScores, m.thresholds)
+    // requirements whose evidence could not be read are never penalised as missing
+    const flags = Object.fromEntries(scored.map((c) => [c.id, Object.fromEntries(Object.entries(c.scores).filter(([, v]) => v.unverifiable).map(([k]) => [k, true]))]))
+    return rankCandidates(reqs, matrixScores, m.thresholds, flags)
   }, [m, scored, reqs])
   const serverRank = useMemo(() => Object.fromEntries((server.data?.ranking || []).map((r) => [r.candidate_id, r])), [server.data])
 
@@ -88,7 +90,7 @@ export default function RankingTab() {
           <Button leftIcon={<Play />} onClick={start} loading={starting} disabled={running || !m?.candidates.length}>{scored.length ? 'Re-run scoring' : 'Run scoring'}</Button>
           <div className="min-w-0 flex-1 text-sm text-muted-foreground">
             {running ? <div className="max-w-sm"><Progress value={run.data.done} max={run.data.total} label="Scoring progress" /><p className="mt-1 text-xs">Scoring {run.data.done} of {run.data.total} resumes. The first run loads the models and takes longer.</p></div>
-              : cfg ? <span className="text-xs">Last run used {cfg.embedder}, {cfg.reranker}, {cfg.nli}.</span>
+              : cfg ? <span className="text-xs">Last run: pipeline {cfg.pipeline_version || 'v1'}, {cfg.embedder}, {cfg.reranker}, {cfg.nli}{cfg.blind_scoring ? ', identity details removed before scoring' : ''}.</span>
               : 'Scoring finds the best passage for each requirement in every parsed resume.'}
           </div>
         </div>
@@ -105,7 +107,7 @@ export default function RankingTab() {
             <Card className="self-start">
               <CardHeader title="Weights" description="Changes re-rank instantly in your browser." />
               <ul className="divide-y divide-border">
-                {reqs.map((r) => (
+                {reqs.filter((r) => isScoredKind(r.meta?.kind)).map((r) => (
                   <li key={r.id} className="p-3">
                     <p className="text-sm">{r.text}</p>
                     <div className="mt-2 flex items-center gap-2">
@@ -131,16 +133,17 @@ export default function RankingTab() {
             </Card>
 
             <Card>
-              <CardHeader title={`Ranking (${shown.length})`} description="Click a candidate to see the evidence behind every score." />
+              <CardHeader title={`Ranking (${shown.length})`} description="Candidates in the same tier are too close to order reliably. Click one to see the evidence behind every score." />
               <DataTable rows={shown} rowKey={(r) => r.candidate_id} selectedKey={selectedId} onRowClick={(r) => select(r.candidate_id)}
                 columns={[
                   { key: 'rank', header: '#', width: '3rem', render: (r) => <span className="tabular-nums text-muted-foreground">{r.rank}</span> },
+                  { key: 'tier', header: 'Tier', width: '4.5rem', render: (r) => <Badge color={r.tied ? 'warning' : 'neutral'} title={r.tied ? 'Within the tier band of another candidate: treat as a tie' : 'Clearly separated'}>{r.tied ? `Tier ${r.tier} ≈` : `Tier ${r.tier}`}</Badge> },
                   { key: 'who', header: 'Candidate', render: (r) => { const c = byId[r.candidate_id]; return <div className="min-w-0"><p className="truncate font-medium">{c.name || c.filename}</p><p className="truncate text-xs text-muted-foreground">{c.filename}</p></div> } },
                   { key: 'score', header: 'Score', width: '12rem', render: (r) => <ScoreBar value={r.final_score} /> },
                   { key: 'met', header: 'Met', width: '3.5rem', align: 'right', render: (r) => r.met },
                   { key: 'partial', header: 'Partial', width: '4rem', align: 'right', render: (r) => r.partial },
-                  { key: 'miss', header: 'Missing', width: '4.5rem', align: 'right', render: (r) => r.not_met },
-                  { key: 'must', header: 'Musts met', width: '5.5rem', align: 'right', render: (r) => r.musts_met },
+                  { key: 'miss', header: 'Missing', width: '4.5rem', align: 'right', render: (r) => r.not_met + (r.not_verifiable ? ` (+${r.not_verifiable}?)` : '') },
+                  { key: 'must', header: 'Musts met', width: '5.5rem', align: 'right', render: (r) => `${r.musts_met} of ${r.musts}` },
                   { key: 'learn', header: 'Learned', width: '5rem', align: 'right', render: (r) => { const p = serverRank[r.candidate_id]?.learned_probability; return p == null ? <span className="text-muted-foreground">-</span> : `${(p * 100).toFixed(0)}%` } },
                   { key: 'rate', header: '', width: '2.5rem', render: (r) => { const t = serverRank[r.candidate_id]?.rating; return t === 'up' ? <ThumbsUp className="size-4 text-success" aria-label="Rated good fit" /> : t === 'down' ? <ThumbsDown className="size-4 text-destructive" aria-label="Rated not a fit" /> : null } },
                 ]}
@@ -149,8 +152,8 @@ export default function RankingTab() {
           </div>
         )}
 
-      <EvidenceSheet candidate={sel?.scored ? sel : null} requirements={reqs} thresholds={m?.thresholds}
-        finalScore={ranked.find((r) => r.candidate_id === selectedId)?.final_score ?? 0}
+      <EvidenceSheet candidate={sel?.scored ? sel : null} requirements={reqs} thresholds={m?.thresholds} hubMax={m?.hub_max_reuse}
+        finalScore={ranked.find((r) => r.candidate_id === selectedId)?.final_score ?? 0} rankRow={ranked.find((r) => r.candidate_id === selectedId)}
         rating={serverRank[selectedId]?.rating} onRate={rate} onClose={() => select(null)} />
     </div>
   )

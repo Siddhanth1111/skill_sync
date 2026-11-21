@@ -17,9 +17,12 @@ def req_dicts(job: Job) -> List[dict]:
 
 def score_dict(s: Score, settings: Settings) -> dict:
     weak = bool(s.verified and s.entailment is not None and s.entailment < settings.entailment_threshold)
+    t = s.trace or {}
     return {"score": s.final_score, "rerank_score": s.rerank_score, "status": s.status, "quote": s.quote,
             "section": s.section, "entailment": s.entailment, "verified": s.verified, "weak": weak,
-            "similarity": s.similarity}
+            "similarity": s.similarity, "sentence": s.sentence, "hub": bool(s.hub),
+            "unverifiable": s.status == "not_verifiable", "skills": t.get("skills"), "rule": t.get("rule"),
+            "pipeline_version": s.pipeline_version}
 
 
 def job_candidates(db: Session, job: Job) -> List[Candidate]:
@@ -34,6 +37,11 @@ def score_matrix(db: Session, job: Job) -> Dict[int, Dict[int, float]]:
     return {cid: {rid: s.final_score for rid, s in rows.items()} for cid, rows in loaded.items() if rows}
 
 
+def unverifiable_flags(loaded: Dict[int, Dict[int, Score]]) -> Dict[int, Dict[int, bool]]:
+    """candidate_id -> requirement_id -> True where the evidence could not be read (excluded from the must penalty)."""
+    return {cid: {rid: True for rid, s in rows.items() if s.status == "not_verifiable"} for cid, rows in loaded.items()}
+
+
 def job_matrix(db: Session, job: Job, settings: Settings) -> dict:
     cands = job_candidates(db, job)
     loaded = load_scores(db, [c.id for c in cands])
@@ -42,6 +50,7 @@ def job_matrix(db: Session, job: Job, settings: Settings) -> dict:
         "stale": bool(job.scores_stale),
         "thresholds": thresholds(settings),
         "entailment_threshold": settings.entailment_threshold,
+        "hub_max_reuse": settings.hub_max_reuse,
         "requirements": req_dicts(job),
         "candidates": [{
             "id": c.id,

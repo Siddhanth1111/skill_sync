@@ -50,10 +50,10 @@ def test_csv_export_ranked_and_formula_safe(client_factory, tmp_path):
     r = c.get("/jobs/%d/export.csv" % job["id"])
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv") and "attachment" in r.headers["content-disposition"]
     rows = list(csv.reader(io.StringIO(r.text)))
-    assert rows[0][:4] == ["rank", "name", "file", "score_0_100"] and len(rows) == 3
-    assert [x[0] for x in rows[1:]] == ["1", "2"] and float(rows[1][3]) > float(rows[2][3])
-    assert all(not cell.startswith(("=", "+", "-", "@")) for row in rows[1:] for cell in row[:3])
-    assert rows[1][1] == "'+Evil Person"
+    assert rows[0][:5] == ["rank", "tier", "name", "file", "score_0_100"] and len(rows) == 3
+    assert [x[0] for x in rows[1:]] == ["1", "2"] and float(rows[1][4]) > float(rows[2][4])
+    assert all(not cell.startswith(("=", "+", "-", "@")) for row in rows[1:] for cell in row[:4])
+    assert rows[1][2] == "'+Evil Person"
 
 
 def test_semantic_search_scopes_and_ranks(pipeline):

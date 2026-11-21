@@ -46,9 +46,15 @@ class CandidateProfile(ProfileExtraction):
     """Validated profile as stored. The fields below are filled by code, never by the LLM."""
 
     years_experience: float = 0.0
+    skill_years: Dict[str, float] = {}  # canonical skill -> years from dated roles that mention it (code, not LLM)
+    skill_links: Dict[str, List[int]] = {}  # canonical skill -> indexes of resume units that show it
     education_level: int = 0
     source: str = "llm"  # llm | rules
     warnings: List[str] = []
+
+
+KINDS = ("hard_skill", "experience", "education", "soft_skill", "duty")
+SCORED_KINDS = ("hard_skill", "experience", "education")
 
 
 class JDRequirement(BaseModel):
@@ -58,6 +64,10 @@ class JDRequirement(BaseModel):
     skills: List[str] = []
     years_required: Optional[float] = Field(None, ge=0)
     degree_level_required: Optional[int] = Field(None, ge=1, le=3)
+    # hard_skill, experience and education are scored; soft_skill and duty are listed but never scored.
+    kind: Optional[str] = Field(None, pattern="^(hard_skill|experience|education|soft_skill|duty)$")
+    # "any": the requirement is met by any one listed skill (A / B / C). "all": every listed skill is needed.
+    skills_mode: str = Field("all", pattern="^(all|any)$")
 
 
 class JDExtraction(BaseModel):
@@ -91,6 +101,8 @@ class RequirementPatch(BaseModel):
     text: Optional[str] = None
     importance: Optional[str] = Field(None, pattern="^(must|should|nice)$")
     weight: Optional[float] = Field(None, ge=0)
+    kind: Optional[str] = Field(None, pattern="^(hard_skill|experience|education|soft_skill|duty)$")
+    skills_mode: Optional[str] = Field(None, pattern="^(all|any)$")
 
 
 class JobOut(BaseModel):
@@ -132,6 +144,7 @@ class ChunkOut(BaseModel):
     idx: int
     section: str
     text: str
+    context: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -147,9 +160,17 @@ class FeedbackIn(BaseModel):
     rating: str = Field(pattern="^(up|down)$")
 
 
+class EvidenceFeedbackIn(BaseModel):
+    requirement_id: int
+    judgement: str = Field(pattern="^(wrong_evidence|correct|missed_evidence)$")
+    grade: Optional[int] = Field(None, ge=0, le=2)  # optional: the grade the reviewer would give
+
+
 class ImpactIn(BaseModel):
-    groups: Dict[str, str]  # candidate id -> synthetic group label
+    groups: Dict[str, str]  # candidate id -> group label (consented, self-reported, or a marked demo)
     top_n: int = Field(ge=1)
+    consent: bool = False  # the labels are self-reported and consented
+    demo: bool = False  # the labels are made up to try the audit; the report is marked DEMO
 
 
 class WeatIn(BaseModel):

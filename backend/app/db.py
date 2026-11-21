@@ -3,7 +3,7 @@
 Tables follow section 6 of the spec. Not yet present (later phases): users, gold_labels, experiment_runs.
 Embeddings are stored as JSON lists and searched with numpy (the pgvector column is a Postgres-only upgrade).
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint,
@@ -17,7 +17,8 @@ class Base(DeclarativeBase):
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    """UTC, stored without a zone (SQLite has none). One definition so every timestamp means the same thing."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class User(Base):
@@ -79,6 +80,10 @@ class Candidate(Base):
     needs_ocr: Mapped[bool] = mapped_column(Boolean, default=False)
     parse_confidence: Mapped[Optional[dict]] = mapped_column(JSON)
     source: Mapped[Optional[str]] = mapped_column(String(10))  # llm | rules
+    # The text the scorer sees: identity details removed (blind by default, review item F2). Units and quotes come
+    # from it. raw_text keeps the original for the recruiter.
+    scoring_text: Mapped[Optional[str]] = mapped_column(Text)
+    chunk_version: Mapped[int] = mapped_column(Integer, default=1)  # 2 = role/bullet units with context
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     chunks = relationship("Chunk", cascade="all, delete-orphan", order_by="Chunk.idx")
 
@@ -90,6 +95,8 @@ class Chunk(Base):
     idx: Mapped[int] = mapped_column(Integer)
     section: Mapped[str] = mapped_column(String(20))
     text: Mapped[str] = mapped_column(Text)
+    context: Mapped[Optional[str]] = mapped_column(Text)  # role, company, dates: retrieval context, never a quote
+    meta: Mapped[Optional[dict]] = mapped_column(JSON)  # {"start": ..., "end": ...} of the role this unit sits under
     embedding: Mapped[Optional[list]] = mapped_column(JSON)  # normalised vector; dimension set by the model
     embedding_model: Mapped[Optional[str]] = mapped_column(String(120))
 
@@ -117,13 +124,34 @@ class Score(Base):
     run_id: Mapped[Optional[int]] = mapped_column(Integer)
     rerank_score: Mapped[float] = mapped_column(Float)
     final_score: Mapped[float] = mapped_column(Float)
-    status: Mapped[str] = mapped_column(String(8))  # met | partial | not_met
+    status: Mapped[str] = mapped_column(String(16))  # met | partial | not_met | not_verifiable
     chunk_id: Mapped[Optional[int]] = mapped_column(Integer)
     similarity: Mapped[Optional[float]] = mapped_column(Float)
     quote: Mapped[Optional[str]] = mapped_column(Text)  # only set when verified
     section: Mapped[Optional[str]] = mapped_column(String(20))
     entailment: Mapped[Optional[float]] = mapped_column(Float)
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    sentence: Mapped[Optional[str]] = mapped_column(Text)  # the single supporting sentence inside the quote
+    hub: Mapped[bool] = mapped_column(Boolean, default=False)  # this evidence unit backs more than hub_max_reuse requirements
+    trace: Mapped[Optional[dict]] = mapped_column(JSON)  # per-requirement debug trace
+    pipeline_version: Mapped[Optional[str]] = mapped_column(String(12))
+
+
+class GoldLabel(Base):
+    """A reviewer's verdict on one piece of evidence (the wrong-evidence button). Holds ids and a grade only, never
+    resume text. These rows seed the gold set; exporting them is a deliberate step (python -m app.cli export-gold)."""
+    __tablename__ = "gold_labels"
+    __table_args__ = (UniqueConstraint("candidate_id", "requirement_id", "user_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id", ondelete="CASCADE"), index=True)
+    requirement_id: Mapped[int] = mapped_column(ForeignKey("requirements.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    judgement: Mapped[str] = mapped_column(String(16))  # wrong_evidence | correct | missed_evidence
+    grade: Mapped[Optional[int]] = mapped_column(Integer)  # the reviewer's own grade: 0 not shown, 1 partly, 2 clearly
+    model_status: Mapped[Optional[str]] = mapped_column(String(16))  # what the system said at the time
+    model_score: Mapped[Optional[float]] = mapped_column(Float)
+    pipeline_version: Mapped[Optional[str]] = mapped_column(String(12))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
 class RerankCache(Base):

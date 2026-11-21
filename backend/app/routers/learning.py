@@ -3,11 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..db import Candidate, Feedback, Job, JobModel, User
+from ..db import Candidate, Feedback, GoldLabel, Job, JobModel, User
 from ..deps import get_db, log_activity, owned_candidate, owned_job, recruiter_only
-from ..schemas import FeedbackIn
+from ..schemas import EvidenceFeedbackIn, FeedbackIn
 from ..services import feedback as fb
 from ..services.matrix import job_candidates, req_dicts, score_matrix
+from ..services.scoring import load_scores
 
 router = APIRouter(tags=["learning"])
 
@@ -77,3 +78,36 @@ def get_model(request: Request, job: Job = Depends(owned_job), _: User = Depends
         out["note"] = ("Cross-validated AUC near 0.5 means the ratings carry no learnable signal. The learned score "
                        "is shown beside the rule-based score and never replaces it.")
     return out
+
+
+@router.post("/candidates/{candidate_id}/evidence-feedback", status_code=201)
+def evidence_feedback(body: EvidenceFeedbackIn, cand: Candidate = Depends(owned_candidate),
+                      user: User = Depends(recruiter_only), db: Session = Depends(get_db)):
+    """The wrong-evidence button: record that the evidence for one requirement is wrong (or right, or missing).
+    Stores ids, the system's status and the reviewer's grade: these rows seed the gold set. One verdict per
+    reviewer, candidate and requirement; sending it again replaces it."""
+    if cand.job_id is None:
+        raise HTTPException(404, "Candidate not found in a job.")
+    job = db.get(Job, cand.job_id)
+    if body.requirement_id not in {r.id for r in job.requirements}:
+        raise HTTPException(404, "Requirement not found in this job.")
+    stored = load_scores(db, [cand.id])[cand.id].get(body.requirement_id)
+    if stored is None:
+        raise HTTPException(409, "This requirement was not scored for this candidate.")
+    row = db.scalar(select(GoldLabel).where(GoldLabel.candidate_id == cand.id, GoldLabel.requirement_id == body.requirement_id,
+                                            GoldLabel.user_id == user.id))
+    if row is None:
+        row = GoldLabel(candidate_id=cand.id, requirement_id=body.requirement_id, user_id=user.id)
+        db.add(row)
+    row.judgement, row.grade = body.judgement, body.grade
+    row.model_status, row.model_score, row.pipeline_version = stored.status, stored.final_score, stored.pipeline_version
+    db.commit()
+    log_activity(db, user.id, "evidence_flag", "candidate_id=%d requirement_id=%d %s" % (cand.id, body.requirement_id, body.judgement))
+    return {"saved": True, "judgement": row.judgement, "grade": row.grade}
+
+
+@router.get("/candidates/{candidate_id}/evidence-feedback")
+def my_evidence_feedback(cand: Candidate = Depends(owned_candidate), user: User = Depends(recruiter_only),
+                         db: Session = Depends(get_db)):
+    rows = db.scalars(select(GoldLabel).where(GoldLabel.candidate_id == cand.id, GoldLabel.user_id == user.id)).all()
+    return {str(r.requirement_id): {"judgement": r.judgement, "grade": r.grade} for r in rows}

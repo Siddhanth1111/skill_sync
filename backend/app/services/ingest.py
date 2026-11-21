@@ -15,6 +15,8 @@ from .embeddings import embed_chunks
 from .extraction import extract_profile
 from .llm import LLMClient
 from .parsing import ParseError, extract_text, ocr_pdf_page, parse_confidence
+from .scoring import make_chunk_rows, scoring_text_for
+from .skillgraph import link_skills, undated_roles
 
 log = logging.getLogger(__name__)  # only ids and error classes are logged, never resume content
 
@@ -38,15 +40,23 @@ def process_candidate(
 
             doc = extract_text(path, settings, ocr_page)                      # Stage 2
             profile = extract_profile(doc.text, llm, settings)                # Stage 3
-            chunks = chunk_resume(doc.text, settings.chunk_max_chars)         # Stage 5
+            # Stage 5: the scorer reads identity-free text (blind by default); units are bullets with context.
+            scoring_text = scoring_text_for(doc.text, profile.model_dump(), settings)
+            units = chunk_resume(scoring_text, settings.chunk_max_chars)
+            profile.skill_links, profile.skill_years = link_skills(units)     # evidence links and years per skill
+            gaps = undated_roles(units)
+            if gaps:
+                profile.warnings.append("%d role(s) have no dates and count as 0 years of experience" % gaps)
 
             # Stage 6 runs BEFORE any row is modified: the first embedding call can take minutes (model download),
             # and a half-written transaction would hold the database write lock for all that time.
-            rows = [Chunk(idx=c.idx, section=c.section, text=c.text) for c in chunks]
+            rows = make_chunk_rows(units)
             if embedder is not None:
                 embed_chunks(rows, embedder)
 
             cand.raw_text = doc.text
+            cand.scoring_text = scoring_text
+            cand.chunk_version = 2
             cand.needs_ocr = doc.ocr_used
             cand.parse_confidence = parse_confidence(doc, settings)
             cand.profile = profile.model_dump()

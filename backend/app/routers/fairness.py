@@ -11,7 +11,7 @@ from ..schemas import ImpactIn, WeatIn
 from ..services import fairness as fx
 from ..services.matrix import job_candidates
 from ..services.ranking import final_score
-from ..services.scoring import load_scores, req_views
+from ..services.scoring import embed_queries, load_scores, req_views
 
 router = APIRouter(prefix="/jobs", tags=["fairness"])
 
@@ -19,21 +19,22 @@ router = APIRouter(prefix="/jobs", tags=["fairness"])
 def _inputs(db: Session, job: Job, request: Request):
     """Scored candidates with their stored baseline, plus the requirement views and query vectors."""
     state = request.app.state
-    reqs = req_views(job.requirements)
+    reqs = [r for r in req_views(job.requirements) if r.scored]
     loaded = load_scores(db, [c.id for c in job_candidates(db, job)])
     cands = []
     for c in job_candidates(db, job):
         rows = loaded[c.id]
         if not rows:
             continue
-        baseline = final_score([(q.importance, q.weight, rows[q.id].final_score) for q in reqs if q.id in rows],
+        baseline = final_score([(q.importance, q.weight, rows[q.id].final_score, rows[q.id].status == "not_verifiable")
+                                for q in reqs if q.id in rows],
                                state.settings.met_threshold, state.settings.partial_threshold,
                                state.settings.must_not_met_penalty)
         cands.append({"id": c.id, "name": (c.profile or {}).get("name") or c.filename, "text": c.raw_text or "",
                       "profile": c.profile or {}, "baseline": baseline})
     if not cands:
         raise HTTPException(409, "Score this job first. Audits compare against stored scores.")
-    qvecs = state.models.embedder.encode_queries([r.text for r in reqs])
+    qvecs = embed_queries(reqs, state.models)
     return state, reqs, qvecs, cands
 
 
@@ -64,14 +65,17 @@ def audit_counterfactual(request: Request, job: Job = Depends(owned_job), user: 
 def audit_impact(body: ImpactIn, request: Request, job: Job = Depends(owned_job), user: User = Depends(recruiter_only),
                  db: Session = Depends(get_db)):
     job_id = job.id
+    if not (body.consent or body.demo):
+        raise HTTPException(400, "Group labels must be consented, self-reported data (confirm consent) or be marked "
+                                 "as a demo. SkillSync never infers or generates them.")
     _, _, _, cands = _inputs(db, job, request)
     groups = {int(k): v for k, v in body.groups.items()}
     finals = {c["id"]: c["baseline"] for c in cands if c["id"] in groups}
     if len(finals) < 2 or len(set(groups[c] for c in finals)) < 2:
         raise HTTPException(400, "Provide group labels for at least two scored candidates and two distinct groups.")
-    result = fx.impact_audit(finals, groups, body.top_n, request.app.state.settings)
+    result = fx.impact_audit(finals, groups, body.top_n, request.app.state.settings, demo=body.demo and not body.consent)
     log_activity(db, user.id, "audit_run", "job_id=%d kind=impact" % job_id)
-    return _save(db, job_id, "impact", {"top_n": body.top_n}, result)
+    return _save(db, job_id, "impact", {"top_n": body.top_n, "labels": result["labels_source"]}, result)
 
 
 @router.post("/{job_id}/audit/weat")

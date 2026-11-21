@@ -13,3 +13,5 @@ dist/
 .jwt_secret
 *.db-shm
 *.db-wal
+eval/gold/*.jsonl
+eval/results/

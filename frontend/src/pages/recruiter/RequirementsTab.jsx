@@ -22,7 +22,7 @@ export default function RequirementsTab() {
     <div className="flex flex-col gap-4">
       {job.requirements_source === 'rules' && <Alert color="warning" title="Requirements were read by rules">The language model was unavailable or returned invalid output, so headings and bullets were used. Check that nothing is missing.</Alert>}
       <Card>
-        <CardHeader title="Requirements" description="Default weights: must 3, should 2, nice 1. Edit anything before scoring." />
+        <CardHeader title="Requirements" description="Hard skills, experience and education are scored (default weights: must 3, should 2, nice 1). Soft skills and duties are listed, not scored." />
         <RequirementsEditor requirements={job.requirements} onSave={save} saving={saving} />
       </Card>
       <Card>

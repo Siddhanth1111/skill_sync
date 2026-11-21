@@ -51,7 +51,7 @@ export default function CandidateProfile({ candidate: c }) {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
         <SourceBadge source={c.source} label={c.source === 'llm' ? 'Read by language model' : 'Read by rules'} />
-        {c.needs_ocr && <Badge color="warning">OCR used</Badge>}
+        {c.needs_ocr && <Badge color="warning">OCR used{conf.ocr_confidence != null ? ` (confidence ${Math.round(conf.ocr_confidence)} of 100)` : ''}</Badge>}
         <span className="text-xs text-muted-foreground">{c.filename}</span>
       </div>
       {conf.low && (
@@ -67,6 +67,9 @@ export default function CandidateProfile({ candidate: c }) {
           <Row k="Name">{p.name}</Row><Row k="Email">{p.email}</Row><Row k="Phone">{p.phone}</Row>
           <Row k="Experience">{p.years_experience != null && `${p.years_experience} years`} <span className="text-xs text-muted-foreground">computed from role dates, overlaps merged</span></Row>
           <Row k="Education level">{LEVELS[p.education_level] ?? p.education_level}</Row>
+          {p.skill_years && Object.keys(p.skill_years).length > 0 && (
+            <Row k="Years with a skill">{Object.entries(p.skill_years).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, y]) => `${k} ${y}`).join(', ')} <span className="text-xs text-muted-foreground">from dated roles that mention it</span></Row>
+          )}
         </dl>
         {p.skills?.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{p.skills.map((s) => <Badge key={s} color="accent">{s}</Badge>)}</div>}
       </section>
@@ -77,13 +80,16 @@ export default function CandidateProfile({ candidate: c }) {
         <MiniTable head={['Degree', 'Institution', 'Level', 'Year']} rows={(p.education || []).map((e) => [e.degree, e.institution, LEVELS[e.level], e.year])} empty="No education found." /></section>
 
       <section>
-        <h3 className="mb-1 text-sm font-medium">Segments <span className="font-normal text-muted-foreground">({c.chunks.length}, at most 500 characters, labelled by section)</span></h3>
+        <h3 className="mb-1 text-sm font-medium">Evidence units <span className="font-normal text-muted-foreground">({c.chunks.length}: one bullet or sentence each, with its role as context. Name, contact details and schools are left out)</span></h3>
         <div>
           {sections.map((s, i) => (
             <Section key={s} title={s} count={bySection[s].length} defaultOpen={i === 0}>
               <div className="flex flex-col gap-1.5">
                 {bySection[s].map((ch) => (
-                  <pre key={ch.id} className="whitespace-pre-wrap rounded-md border border-border bg-muted/40 p-2 font-mono text-xs leading-relaxed">{ch.text}</pre>
+                  <div key={ch.id} className="rounded-md border border-border bg-muted/40 p-2">
+                    {ch.context && ch.context !== s.charAt(0).toUpperCase() + s.slice(1) && <p className="mb-1 text-[11px] text-muted-foreground">{ch.context}</p>}
+                    <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">{ch.text}</pre>
+                  </div>
                 ))}
               </div>
             </Section>

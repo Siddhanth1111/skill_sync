@@ -12,7 +12,7 @@ from .verify import quote_in_text
 
 log = logging.getLogger(__name__)
 
-STATUS_ORDER = {"not_met": 0, "partial": 1, "met": 2}
+STATUS_ORDER = {"not_met": 0, "not_verifiable": 1, "partial": 2, "met": 3}
 QUOTED = re.compile(r'["“]([^"“”]{6,})["”]')
 
 NARRATIVE_SYSTEM = (
@@ -40,7 +40,7 @@ def _first_line(quote: str, limit: int = 160) -> Optional[str]:
 
 def template_narrative(name: str, total: float, rows: List[dict], gap_list: List[dict]) -> str:
     met = [r for r in rows if r["status"] == "met"]
-    musts = [r for r in rows if r["importance"] == "must"]
+    musts = [r for r in rows if r["importance"] == "must" and float(r["weight"]) > 0]
     musts_met = [r for r in musts if r["status"] == "met"]
     parts = ["%s scores %.0f out of 100 on this job. %d of %d requirements are met, including %d of %d must-haves."
              % (name, total * 100, len(met), len(rows), len(musts_met), len(musts))]
@@ -82,14 +82,21 @@ def build_narrative(name: str, rows: List[dict], total: float, gap_list: List[di
 
 
 def explanation(cand, reqs: List[dict], scores: Dict[int, dict], llm, settings: Settings) -> dict:
-    total = final_score([(r["importance"], float(r["weight"]), scores[r["id"]]["score"]) for r in reqs if r["id"] in scores],
+    total = final_score([(r["importance"], float(r["weight"]), scores[r["id"]]["score"], scores[r["id"]]["status"] == "not_verifiable")
+                         for r in reqs if r["id"] in scores],
                         settings.met_threshold, settings.partial_threshold, settings.must_not_met_penalty)
     rows = ordered_rows(reqs, scores)
     for r in rows:
         r["final_score"] = r["score"]
-    gap_list = gaps(reqs, {rid: s["score"] for rid, s in scores.items()})
+    gap_list = gaps(reqs, {rid: s["score"] for rid, s in scores.items()})  # weight 0 (unscored) never appears
     for g in gap_list:
         g["text"] = next(r["text"] for r in reqs if r["id"] == g["requirement_id"])
     name = (cand.profile or {}).get("name") or cand.filename
+    unscored = [{"id": r["id"], "text": r["text"], "kind": (r.get("meta") or {}).get("kind"), "importance": r["importance"]}
+                for r in reqs if r["id"] not in scores]
+    musts = [r for r in rows if r["importance"] == "must" and float(r["weight"]) > 0]
+    # The narrative may quote only what the scorer saw (the identity-free text), so grounding checks that text.
+    resume_text = cand.scoring_text or cand.raw_text or ""
     return {"candidate_id": cand.id, "name": name, "final_score": total, "requirements": rows, "gaps": gap_list,
-            "narrative": build_narrative(name, rows, total, gap_list, cand.raw_text or "", llm, settings)}
+            "musts_met": sum(1 for r in musts if r["status"] == "met"), "musts": len(musts), "unscored": unscored,
+            "narrative": build_narrative(name, rows, total, gap_list, resume_text, llm, settings)}

@@ -19,7 +19,7 @@ def test_matrix_ranking_and_verified_quotes(pipeline):
     texts = {}
     from app.db import Candidate
     with pipeline.app.state.session_factory() as db:
-        texts = {c.id: c.raw_text for c in db.query(Candidate)}
+        texts = {c.id: c.scoring_text for c in db.query(Candidate)}  # quotes come from the identity-free scoring text
     shown = 0
     for cand in m["candidates"]:
         assert set(cand["scores"]) == {str(i) for i in reqs}

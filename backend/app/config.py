@@ -35,16 +35,22 @@ class Settings(BaseSettings):
     worker_threads: int = 3
 
     # Stage 2: extraction / OCR
-    ocr_min_chars: int = 200  # PDFs with fewer characters are treated as scanned
-    ocr_dpi: int = 200
+    ocr_min_chars: int = 200  # a whole document under this many characters is OCRed page by page
+    ocr_page_min_chars: int = 60  # a single page with fewer characters than this is OCRed (A1)
+    ocr_garbage_ratio: float = 0.35  # a page whose text is mostly symbols or replacement characters is OCRed
+    ocr_image_area_ratio: float = 0.5  # a page mostly covered by images, with little text, is OCRed
+    ocr_dpi: int = 300
+    ocr_psm: int = 4  # Tesseract page segmentation: 4 = one column of variable sizes, 6 = one uniform block
+    ocr_min_confidence: float = 60.0  # mean word confidence under this flags the parse as low confidence
     low_confidence_min_chars: int = 400
     low_confidence_min_sections: int = 2
 
     # Stage 4: default requirement weights by importance
     weights: Dict[str, int] = {"must": 3, "should": 2, "nice": 1}
 
-    # Stage 5: chunking
+    # Stage 5: chunking. Units are bullets or sentences, so this is only a cap on one unit.
     chunk_max_chars: int = 500
+    max_scored_requirements_warning: int = 15  # the editor warns above this many scored requirements (B8)
 
     # Models. "real" loads the HuggingFace models below (downloaded on first use, about 2 GB in total).
     # "light" uses small deterministic stand-ins (hashing embedder, lexical reranker and entailment): no downloads,
@@ -56,7 +62,16 @@ class Settings(BaseSettings):
     nli_model: str = "microsoft/deberta-base-mnli"
 
     # Stages 7-11: retrieval, scoring, ranking (starting values, to be tuned on development data only)
-    retrieval_top_k: int = 3
+    pipeline_version: str = "v2"  # part of the rerank cache key and stored on every score (D9)
+    retrieval_top_k: int = 8  # hybrid retrieval keeps this many units per requirement; the reranker picks among them
+    hub_max_reuse: int = 3  # one unit may be the evidence for at most this many requirements before it is flagged
+    blind_scoring: bool = True  # score on text with identity details removed (F2)
+    skill_listed_score: float = 0.65  # skill found only in a bare skills list
+    skill_related_score: float = 0.35  # a sibling tool (RabbitMQ for Kafka) is found: partial at most
+    skill_technique_score: float = 0.5  # a named method that is one instance of the skill (logistic regression for ML)
+    equivalent_experience_years: float = 5.0  # "or equivalent experience" satisfies a degree requirement at this level
+    field_mismatch_factor: float = 0.7  # degree level fine but the required field of study is not found
+    tier_band_points: float = 2.0  # candidates within this many points of a tier's leader share the tier (E2)
     met_threshold: float = 0.6
     partial_threshold: float = 0.3
     skill_present_score: float = 0.85
@@ -66,6 +81,9 @@ class Settings(BaseSettings):
     # supported quotes, so 0.5 flagged everything. 0.05 comes from an 8-pair sanity probe (unsupported <= 0.03,
     # supported >= 0.07) and has NOT been tuned on a development set. Tune it before trusting the flag.
     entailment_threshold: float = 0.05
+    # A verified quote flagged as weak evidence (entailment below the threshold) cannot score above this, unless the
+    # ontology finds the requirement's skill in the quote itself.
+    weak_evidence_cap: float = 0.59
 
     # Stage 13: learning from feedback
     min_ratings: int = 10

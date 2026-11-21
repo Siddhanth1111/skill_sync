@@ -73,7 +73,7 @@ def test_chunks_and_text_stored_and_temp_file_deleted(client_factory, tmp_path):
     with c.app.state.session_factory() as db:
         cand = db.query(Candidate).one()
         assert cand.status == "done" and cand.chunks
-        assert all(ch.text in cand.raw_text or " ".join(ch.text.split()) in " ".join(cand.raw_text.split())
+        assert all(ch.text in cand.scoring_text or " ".join(ch.text.split()) in " ".join(cand.scoring_text.split())
                    for ch in cand.chunks)
         assert {ch.section for ch in cand.chunks} >= {"experience", "skills"}
         assert all(len(ch.text) <= 500 for ch in cand.chunks)

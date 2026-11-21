@@ -78,7 +78,7 @@ def embed_chunks(chunks, embedder) -> None:
     """Embed Chunk rows (documents, no query prefix) and store the vectors on them."""
     if not chunks:
         return
-    vecs = embedder.encode_docs([c.text for c in chunks])
+    vecs = embedder.encode_docs([("%s. %s" % (c.context, c.text)) if getattr(c, "context", None) else c.text for c in chunks])
     for c, v in zip(chunks, vecs):
         c.embedding = [float(x) for x in v]
         c.embedding_model = embedder.name

@@ -95,15 +95,20 @@ def test_audit_endpoints_and_history(pipeline):
     assert all(abs(c["max_abs_change"]) < 2.0 and not c["flagged"] for c in cf["candidates"])  # names/pronouns do not move lexical scores
 
     groups = {str(cid): ("G1" if i % 2 else "G2") for i, cid in enumerate(pipeline.cands.values())}
-    imp = pipeline.post("/jobs/%d/audit/impact" % jid, json={"groups": groups, "top_n": 1}).json()
-    assert set(imp["groups"]) == {"G1", "G2"} and imp["top_n"] == 1
-    assert pipeline.post("/jobs/%d/audit/impact" % jid, json={"groups": {str(k): "same" for k in pipeline.cands.values()}, "top_n": 1}).status_code == 400
+    # F1: labels must be consented or marked as a demo; they are never made up silently
+    assert pipeline.post("/jobs/%d/audit/impact" % jid, json={"groups": groups, "top_n": 1}).status_code == 400
+    imp = pipeline.post("/jobs/%d/audit/impact" % jid, json={"groups": groups, "top_n": 1, "consent": True}).json()
+    assert set(imp["groups"]) == {"G1", "G2"} and imp["top_n"] == 1 and imp["labels_source"] == "consented"
+    assert imp["small_groups"] and "rate_ci_low" in imp["groups"]["G1"]  # tiny groups are flagged with intervals
+    demo = pipeline.post("/jobs/%d/audit/impact" % jid, json={"groups": groups, "top_n": 1, "demo": True}).json()
+    assert demo["labels_source"] == "demo" and demo["warning"].startswith("DEMO")
+    assert pipeline.post("/jobs/%d/audit/impact" % jid, json={"groups": {str(k): "same" for k in pipeline.cands.values()}, "top_n": 1, "consent": True}).status_code == 400
 
     weat = pipeline.post("/jobs/%d/audit/weat" % jid, json={"groups": "gender"}).json()
     assert 0 <= weat["p_value"] <= 1
 
     hist = pipeline.get("/jobs/%d/audit/history" % jid).json()
-    assert [h["kind"] for h in hist] == ["blind", "counterfactual", "impact", "weat"]
+    assert [h["kind"] for h in hist] == ["blind", "counterfactual", "impact", "impact", "weat"]
     assert all(h["headline"] is not None for h in hist[:2]) and hist[0]["audit_id"] < hist[1]["audit_id"]
 
 

@@ -94,7 +94,10 @@ def test_whatif_raises_score_and_saves_nothing(client_factory, tmp_path):
     with c.app.state.session_factory() as db:
         assert sorted((s.candidate_id, s.requirement_id, s.final_score) for s in db.query(Score)) == scores_before
         assert db.get(Candidate, cid).raw_text == text_before and db.query(Chunk).count() == chunks_before
-    again = c.post("/student/whatif", json={"candidate_id": cid, "job_id": jobs[1], "addition": "Studied cooking and gardening for fun."}).json()
+    # F6: a bare phrase is not evidence-style, so the simulator refuses it instead of rewarding keywords
+    assert c.post("/student/whatif", json={"candidate_id": cid, "job_id": jobs[1], "addition": "Tableau Excel SQL Kafka Spark"}).status_code == 422
+    assert w["estimate"] is True and "estimate" in w["note"].lower()
+    again = c.post("/student/whatif", json={"candidate_id": cid, "job_id": jobs[1], "addition": "Wrote a cooking blog and gardening tips for 3 years."}).json()
     assert again["delta_points"] <= 1e-9 and again["after"] <= w["after"]
     assert c.post("/student/whatif", json={"candidate_id": cid, "job_id": 999, "addition": "something here"}).status_code == 404
 

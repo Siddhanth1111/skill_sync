@@ -28,7 +28,7 @@ def test_scanned_pdf_triggers_ocr(tmp_path, settings):
         return RESUME
 
     doc = extract_text(str(p), settings, ocr_page=fake_ocr)
-    assert doc.ocr_used and calls == [200] and "Jane Doe" in doc.text
+    assert doc.ocr_used and calls == [settings.ocr_dpi] and "Jane Doe" in doc.text
     assert parse_confidence(doc, settings)["low"] is True  # OCR always lowers confidence
 
 
@@ -38,7 +38,7 @@ def test_ocr_unavailable_gives_clear_error(tmp_path, settings, monkeypatch):
     def boom(*a, **k):
         raise pytesseract.TesseractNotFoundError()
 
-    monkeypatch.setattr(pytesseract, "image_to_string", boom)
+    monkeypatch.setattr(pytesseract, "image_to_data", boom)
     p = tmp_path / "scan.pdf"
     make_pdf(p, "tiny")
     with pytest.raises(ParseError, match="OCR"):
