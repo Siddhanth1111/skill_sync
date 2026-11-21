@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     retrieval_top_k: int = 8  # hybrid retrieval keeps this many units per requirement; the reranker picks among them
     hub_max_reuse: int = 3  # one unit may be the evidence for at most this many requirements before it is flagged
     blind_scoring: bool = True  # score on text with identity details removed (F2)
-    skill_listed_score: float = 0.65  # skill found only in a bare skills list
+    skill_listed_score: float = 0.5  # skill found only in a bare skills list: partial, never met
     skill_related_score: float = 0.35  # a sibling tool (RabbitMQ for Kafka) is found: partial at most
     skill_technique_score: float = 0.5  # a named method that is one instance of the skill (logistic regression for ML)
     equivalent_experience_years: float = 5.0  # "or equivalent experience" satisfies a degree requirement at this level

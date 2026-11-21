@@ -51,7 +51,7 @@ Prerequisites: Python 3.9+, Node 18+, [Ollama](https://ollama.com) with `ollama 
 cd backend
 python3 -m venv ../.venv && source ../.venv/bin/activate
 pip install -r requirements.txt
-pytest                                            # 188 tests, no models or Ollama needed
+pytest                                            # 200 tests, no models or Ollama needed
 uvicorn app.main:create_app --factory --reload    # http://localhost:8000/docs
 
 # terminal 2: frontend
@@ -192,10 +192,10 @@ resume-derived cells. The activity log stores action names, ids and counts only.
 
 ### Stages 10 and 11 (score and rank)
 - **Skills are scored from evidence, never from the profile's skill list.** Per skill the ontology reads the retrieved units:
-  found in work history 0.85, found only in a skills list 0.65, a named technique of the skill (logistic regression for machine
+  found in work history 0.85, found only in a skills list 0.5 (partial, never met), a named technique of the skill (logistic regression for machine
   learning) 0.5, a sibling tool (RabbitMQ for Kafka) 0.35, not found at most 0.45 (capped reranker score). "All of" averages
   the skills, "any of" takes the best. A skill the ontology does not know uses the reranker score.
-- **Experience:** years *with the skill* (from dated roles that mention it) over years required, capped at 1; total career years
+- **Experience:** years *with the skill* (from dated roles that mention it) over years required, capped at 1, **and never "met" below the stated minimum** (2 years against "3 to 5" is partial); total career years
   when no skill is named; a skill that appears but is not linked to any dated role is capped at partial.
 - **Education:** level over level required, multiplied by 0.7 when the required field of study is not found, with an explicit
   rule that "or equivalent experience" counts as 0.8 at 5 or more years.
@@ -266,11 +266,11 @@ To look at the data: `sqlite3 -header -column backend/skillsync.db` (it contains
 
 ## Tests
 
-`cd backend && pytest` runs 188 tests (1 skipped: the real-model paraphrase run) in about 25 seconds. The LLM is a scripted mock and the models use the `light` backend,
+`cd backend && pytest` runs 200 tests (1 skipped: the real-model paraphrase run) in about 25 seconds. The LLM is a scripted mock and the models use the `light` backend,
 so no downloads are needed. They cover: dates, chunking, rule fallbacks, LLM retry/fallback/sanity checks, parsing and OCR
 paths, scoring formulas, ranking formula and tie-breaks, **backend/browser ranking parity (runs the real `rank.js` with Node)**,
 rerank cache, verified quotes being exact substrings, stale scores, failure reporting, narrative grounding, learning, fairness,
-student mode, analytics, CSV safety, search, **one regression test or more per fixed flaw ID in the QA review** (`test_requirements_v2`, `test_ontology`, `test_units_v2`, `test_retrieval_v2`, `test_pipeline_v2`, `test_paraphrase`, `test_eval_metrics`), and **auth and access control**: registration rules, hashing, wrong-password and
+student mode, analytics, CSV safety, search, **one regression test or more per fixed flaw ID in the QA review** (`test_review2`, `test_requirements_v2`, `test_ontology`, `test_units_v2`, `test_retrieval_v2`, `test_pipeline_v2`, `test_paraphrase`, `test_eval_metrics`), and **auth and access control**: registration rules, hashing, wrong-password and
 unknown-email responses, login throttle, expired / forged / `alg=none` tokens, deleted-user tokens, role checks across every
 route group, cross-user isolation on 16 routes, admin actions, delete-my-data, and an activity log free of personal data.
 
@@ -279,7 +279,7 @@ CSV download, slider re-rank with zero server calls, the demo-labels path of the
 
 ## What has and has not been verified
 
-- **Unit and API tests:** all 188 pass (see above).
+- **Unit and API tests:** all 200 pass (see above).
 - **Real models, end to end** (Llama 3.1 8B through Ollama, bge-base, bge-reranker-base, deberta-base-mnli) on three synthetic
   resumes and one job, after the v2 rebuild: all 4 requirements extracted with kinds, all 3 resumes parsed by the LLM, ranking
   strong 94.0 / mid 76.5 / weak 3.8 in tiers 1, 2 and 3, musts met 3 of 3 / 3 of 3 / 0 of 3, every displayed quotation
@@ -297,6 +297,19 @@ CSV download, slider re-rank with zero server calls, the demo-labels path of the
 - **OCR:** Tesseract 5.5.4 is installed on this machine; a synthetic scanned page reads correctly at mean confidence about 90.
   Not tested on photographs, skewed phone scans, or real resumes.
 - **Not verified:** Postgres; any measure of ranking quality, kappa, calibration or fairness against humans (no gold set).
+
+## Second QA round (SQL Developer review)
+
+| Finding | What changed |
+|---|---|
+| 1. Minimum experience not enforced | Below the stated minimum a requirement is capped under "met" (`below_minimum` in the trace and a note in the UI) |
+| 2. Wrapped lines became half-sentences | Continuation lines are joined in every section before units are built ("B.Tech -" + "Computer Science" is one unit); bullets join with a space |
+| 3. Soft skills scored | "Strong debugging skills", analytical, problem-solving and other abstract "strong ... skills" traits are soft skills: listed, weight 0 |
+| 4. Listed-only skill counted as met | A skill found only in a skills list scores 0.5, which is partial. Work history or project text is required for met; a skill both listed and demonstrated counts as demonstrated |
+| 5. Combined requirement showed one quote | "A, B, C and D" is split into parts; each part is checked on its own and the UI shows a found / missing checklist with each part's sentence (plural-tolerant: "view" and "views") |
+| 6. Warning disagreed with verdict | One rule: evidence is weak only when the model doubts it and the ontology cannot find the skill in the sentence. Weak evidence is capped at partial, and only weak evidence is warned. A Met row cannot carry the warning |
+| 7. Generic lines reused | Work text beats a summary line beats a skills list when choosing evidence; a summary or header line is flagged after one use; a requirement with nothing supporting it shows no quote at all |
+| 8. Tune the thresholds on human-judged resumes | `python -m eval.tune gold.jsonl` searches met/partial on development jobs only and scores the held-out jobs once (`--report-test`). **Not run: it needs the human-graded gold set, which does not exist yet**, so the thresholds are still untuned |
 
 ## QA review plan: status
 
@@ -330,7 +343,7 @@ student features beyond what-if and roadmap.
   every vector of the user's resumes.
 - SQLite is the default. A small start-up step adds new columns to an older database, but it cannot change constraints; use
   Alembic before production. Login throttling is in memory and resets on restart. Tokens live in localStorage.
-- Thresholds (0.6, 0.3, 0.9 penalty, 0.85 / 0.65 / 0.5 / 0.35 / 0.45 skill levels, the 2-point tier band, entailment 0.05) are
+- Thresholds (0.6, 0.3, 0.9 penalty, 0.85 / 0.5 / 0.5 / 0.35 / 0.45 skill levels, the 2-point tier band, entailment 0.05) are
   starting values and have **not been tuned** on a development set.
 - Jobs created before this version have requirements without a kind or query; they are scored as before. Create the job again
   to get kinds and any-of lists.
