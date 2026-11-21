@@ -36,7 +36,7 @@ def test_c2_units_are_single_bullets_with_the_role_as_context():
     units = chunk_resume(RESUME)
     exp = [u for u in units if u.section == "experience"]
     assert len(exp) == 3
-    assert exp[0].text == "Tuned slow SQL using execution plans\nand indexes on PostgreSQL"  # wrapped bullet joined
+    assert exp[0].text == "Tuned slow SQL using execution plans and indexes on PostgreSQL"  # wrapped bullet joined
     assert "Backend Developer - Acme" in exp[0].context and exp[0].start == "Jan 2021" and exp[0].end == "Dec 2023"
     assert "Intern, Beta Labs" in exp[2].context
     assert exp[0].embed_text.startswith(exp[0].context)

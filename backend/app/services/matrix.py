@@ -16,12 +16,13 @@ def req_dicts(job: Job) -> List[dict]:
 
 
 def score_dict(s: Score, settings: Settings) -> dict:
-    weak = bool(s.verified and s.entailment is not None and s.entailment < settings.entailment_threshold)
     t = s.trace or {}
+    # Same rule as scoring (see score_candidate): weak means the model doubts it and the ontology cannot vouch for it.
+    weak = bool(t["weak"]) if "weak" in t else bool(s.verified and s.entailment is not None and s.entailment < settings.entailment_threshold)
     return {"score": s.final_score, "rerank_score": s.rerank_score, "status": s.status, "quote": s.quote,
             "section": s.section, "entailment": s.entailment, "verified": s.verified, "weak": weak,
             "similarity": s.similarity, "sentence": s.sentence, "hub": bool(s.hub),
-            "unverifiable": s.status == "not_verifiable", "skills": t.get("skills"), "rule": t.get("rule"),
+            "unverifiable": s.status == "not_verifiable", "skills": t.get("skills"), "parts": t.get("parts"), "below_minimum": t.get("below_minimum", False), "rule": t.get("rule"),
             "pipeline_version": s.pipeline_version}
 
 

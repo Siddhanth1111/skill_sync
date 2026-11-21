@@ -58,7 +58,7 @@ def _job_stats(db: Session, job: Job, settings) -> Optional[dict]:
     shown = [s for s in cells if s.quote or s.verified is not None]
     quality = {  # model-quality and evidence-reuse metrics (reported as measured on this job, not as accuracy)
         "cells": len(cells),
-        "verified_rate": (sum(1 for s in cells if s.verified) / len(cells)) if cells else None,
+        "verified_rate": (sum(1 for s in cells if s.verified) / len(cells)) if cells else None,  # cells with a verified quote shown
         "evidence_reuse_rate": (sum(1 for s in cells if s.hub) / len(cells)) if cells else None,
         "unverifiable_rate": (sum(1 for s in cells if s.status == "not_verifiable") / len(cells)) if cells else None,
         "weak_evidence_rate": (sum(1 for s in cells if s.verified and s.entailment is not None

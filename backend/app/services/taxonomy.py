@@ -182,6 +182,15 @@ def aliases_of(skill: str) -> List[str]:
     return [c] + list(ENTRIES[c].get("aliases", [])) if c else [skill.strip()]
 
 
+def _literal_pattern(phrase: str) -> "re.Pattern":
+    """For a skill the ontology does not know: whole-token match that tolerates a plural ('view' and 'views')."""
+    words = phrase.strip().split()
+    last = words[-1]
+    stem = last[:-1] if len(last) > 3 and last.endswith("s") else last
+    body = " ".join(re.escape(w) for w in words[:-1] + [stem])
+    return re.compile(r"(?<![\w+#.])" + body + r"(?:s|es)?(?![\w+#])", re.IGNORECASE)
+
+
 def mentions(text: str, c: str) -> bool:
     """True when canonical skill `c` or one of its aliases appears in the text."""
     return bool(_PATTERNS[c].search(text) or any(p.search(text) for p in _ALIAS_PATTERNS[c]))
@@ -191,7 +200,7 @@ def skill_match(text: str, skill: str) -> Optional[str]:
     """'direct', 'implied', 'technique', 'related' or None for one skill against a piece of text."""
     c = canonical(skill)
     if c is None:  # not in the ontology: literal whole-token match only
-        return "direct" if skill.strip() and _phrase_pattern(skill.strip()).search(text) else None
+        return "direct" if skill.strip() and _literal_pattern(skill).search(text) else None
     if mentions(text, c):
         return "direct"
     if any(mentions(text, d) for d in _DESCENDANTS.get(c, ())):

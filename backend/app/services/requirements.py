@@ -19,7 +19,11 @@ SOFT_RE = re.compile(
     r"\b(communicat\w*|team ?work|collaborat\w*|leadership|stakeholder\w*|interpersonal|problem[- ]solving|"
     r"self[- ]motivated|attention to detail|time management|adaptab\w*|work ethic|fast[- ]paced|proactive|ownership|"
     r"critical thinking|presentation skills|negotiat\w*|team player|multi-?task\w*|organi[sz]ational|"
-    r"curious\w*|passion\w*|positive attitude|work independently|self[- ]starter)\b", re.I)
+    r"curious\w*|passion\w*|positive attitude|work independently|self[- ]starter|debugging skills?|"
+    r"troubleshooting skills?|analytical\w*|logical thinking|quick learner|learning ability|work under pressure|"
+    r"team ?player|detail[- ]oriented|result[- ]oriented|decision[- ]making|time[- ]management)\b", re.I)
+# "Strong X skills" where X is not a technology: an abstract trait, not something a resume can prove
+TRAIT_RE = re.compile(r"^(?:strong|good|excellent|solid|great|proven|outstanding)\b.*\bskills?\b\W*$", re.I)
 DUTY_RE = re.compile(
     r"^(?:you will\s+)?(?:design|build|develop|implement|maintain|own|lead|manage|write|deliver|collaborate|"
     r"work with|work closely|participate|support|create|drive|review|ensure|monitor|deploy|architect|mentor|"
@@ -28,8 +32,9 @@ DUTY_RE = re.compile(
 FILLER_PREFIX = re.compile(
     r"^(?:(?:we(?:'re| are) looking for|you (?:have|will have|bring|are|should have|possess)|must have|should have|"
     r"required|preferred|strong|good|solid|deep|proven|excellent|extensive|hands[- ]on|working|demonstrated|"
-    r"in-depth|basic|advanced|sound|thorough|understanding of|knowledge of|experience (?:in|with|of|using)|"
+    r"in-depth|basic|advanced|sound|thorough|understanding of|knowledge of|experience (?:in|with|of|using)|experience|"
     r"proficiency (?:in|with)|proficient (?:in|with)|familiarity with|familiar with|ability to|expertise in|"
+    r"writing|building|creating|developing|designing|using|working with|hands[- ]on experience (?:in|with)|"
     r"background in|exposure to|competence in|an?|the)\s+)+", re.I)
 FILLER_SUFFIX = re.compile(r"\s*(?:skills?|experience|knowledge|is a plus|a plus|preferred|required)\s*$", re.I)
 YEARS_PHRASE = re.compile(NUM + r"(?:\s*(?:-|–|—|to)\s*" + NUM + r")?\s*\+?\s*(?:years?|yrs?)\s*(?:of\s+)?", re.I)
@@ -82,6 +87,14 @@ def detect_skills_mode(text: str, skills: List[str]) -> str:
     return "any" if re.search(r"\bor\b", t) and not re.search(r"\band\b", t) else "all"
 
 
+def split_parts(text: str) -> List[str]:
+    """'stored procedures, functions, views, and triggers' -> its four parts. Needs three or more short items."""
+    q = normalize_query(text)
+    pieces = [p.strip(" .;:") for p in re.split(r",\s*(?:and|or)?\s*|\s+(?:and|or)\s+", q)]
+    pieces = [p for p in pieces if p]
+    return pieces if len(pieces) >= 3 and all(1 <= len(p.split()) <= 4 for p in pieces) else []
+
+
 def derive_kind(text: str, skills: List[str], type_: str, years: Optional[float], degree: Optional[int],
                 duty_hint: bool = False) -> str:
     if type_ == "education" or degree:
@@ -92,7 +105,7 @@ def derive_kind(text: str, skills: List[str], type_: str, years: Optional[float]
         return "duty"  # "Build services with Python" under Responsibilities is a duty, not a skill requirement
     if skills or find_skills(text):
         return "hard_skill"
-    if SOFT_RE.search(text):
+    if SOFT_RE.search(text) or TRAIT_RE.match(text.strip()):
         return "soft_skill"
     if duty_hint or DUTY_RE.match(text.strip()):
         return "duty"
@@ -120,6 +133,10 @@ def finalize_requirement(r: JDRequirement, duty_hint: bool = False) -> JDRequire
     elif kind in ("soft_skill", "duty") and derived == "hard_skill" and skills:
         kind = "hard_skill"
     type_ = {"education": "education", "experience": "experience"}.get(kind, "skill")
+    if kind == "hard_skill" and len(skills) < 2:  # a combined requirement: each part is checked on its own
+        parts = split_parts(r.text)
+        if parts:
+            skills = parts
     mode = detect_skills_mode(r.text, skills) if r.skills_mode == "all" else r.skills_mode
     return r.model_copy(update={"kind": kind, "type": type_, "skills": skills, "years_required": years,
                                 "skills_mode": mode})

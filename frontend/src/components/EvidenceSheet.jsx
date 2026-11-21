@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react'
-import { Flag, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { Check, Flag, Minus, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import { api } from '../api/index.js'
 import { gaps, statusOf } from '../lib/rank.js'
 import { Badge, ImportanceBadge, KindBadge, SourceBadge, StatusBadge, isScoredKind } from './ui/Badge.jsx'
@@ -40,6 +40,31 @@ function Trace({ trace }) {
         <dt>Pipeline</dt><dd>{trace.version}</dd>
       </dl>
     </details>
+  )
+}
+
+const PART = {
+  found: ['text-success-text', Check, 'found'], listed: ['text-warning-text', Minus, 'only listed under skills'],
+  technique: ['text-warning-text', Minus, 'a specific method only'], related: ['text-warning-text', Minus, 'a related tool only'],
+  missing: ['text-destructive-text', X, 'not found'],
+}
+
+// Which parts of a combined requirement ("stored procedures, functions, views and triggers") were found.
+function Parts({ parts, mode }) {
+  const entries = Object.entries(parts || {})
+  if (entries.length < 2) return null
+  const found = entries.filter(([, p]) => p.status === 'found').length
+  return (
+    <div className="mt-2 rounded-sm border border-border p-2">
+      <p className="mb-1 text-xs font-medium">{found} of {entries.length} found{mode === 'any' ? ' (any one is enough)' : ''}</p>
+      <ul className="flex flex-col gap-1">
+        {entries.map(([name, p]) => { const [tone, Icon, label] = PART[p.status] || PART.missing; return (
+          <li key={name} className="flex items-start gap-1.5 text-xs">
+            <Icon className={cn('mt-0.5 size-3.5 shrink-0', tone)} aria-hidden />
+            <span><b className="font-medium">{name}</b> <span className={tone}>{label}</span>{p.text && <span className="text-muted-foreground">: "{p.text}"</span>}</span>
+          </li>) })}
+      </ul>
+    </div>
   )
 }
 
@@ -121,14 +146,16 @@ export default function EvidenceSheet({ candidate, requirements, thresholds, fin
                 </div>
                 <p className="mt-1.5 text-sm">{r.text}</p>
                 {r.status === 'not_verifiable' && <Alert color="warning" className="mt-2">The resume was read poorly (scan quality or little text), so a missing match cannot be trusted. It is not counted against the candidate.</Alert>}
+                <Parts parts={r.parts} mode={r.meta?.skills_mode} />
+                {r.below_minimum && <Alert color="warning" className="mt-2">Below the stated minimum, so this cannot count as met even though it is close.</Alert>}
                 {r.quote ? (
                   <blockquote className="mt-2 rounded-sm border-l-2 border-border bg-muted/40 px-3 py-2">
                     <Quote text={r.quote} sentence={r.sentence} />
                     <p className="mt-1 text-xs text-muted-foreground">From the {r.section} section · verified in the resume text{r.entailment != null && ` · entailment ${r.entailment.toFixed(2)}`}</p>
-                    {r.weak && <Alert color="warning" className="mt-2">Weak evidence: the passage may not support this requirement, so it cannot count as met. Read it before relying on the score.</Alert>}
+                    {r.weak && <Alert color="warning" className="mt-2">Weak evidence: the passage may not support this requirement, so it is capped at partial. Read it before relying on the score.</Alert>}
                     {r.hub && <Alert color="warning" className="mt-2">The same passage is the evidence for more than {hubMax} requirements. It may be a generic line; check that it really supports this one.</Alert>}
                   </blockquote>
-                ) : <p className="mt-2 text-xs text-muted-foreground">No verified quotation for this requirement.</p>}
+                ) : <p className="mt-2 text-xs text-muted-foreground">{r.status === 'met' || r.status === 'partial' ? 'No verified quotation for this requirement.' : 'Nothing in the resume supports this requirement, so no passage is shown.'}</p>}
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <span className="text-xs text-muted-foreground">Is this evidence right?</span>
                   <Button variant="outline" size="sm" selected={verdicts[r.id]?.judgement === 'correct'} aria-pressed={verdicts[r.id]?.judgement === 'correct'} onClick={() => flag(r.id, 'correct')}>Yes</Button>

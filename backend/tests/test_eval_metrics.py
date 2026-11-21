@@ -49,3 +49,15 @@ def test_report_runs_on_predictions():
             for g, p, s in [(2, 2, 0.85), (0, 0, 0.1), (1, 1, 0.4), (2, 1, 0.5), (0, 0, 0.0), (2, 2, 0.9)]]
     r = report(pred, Settings(model_backend="light"))
     assert r["n"] == 6 and r["kappa"]["all"]["qwk"] > 0.5 and r["ndcg_at_5"]["groups"] == 1
+
+
+def test_tuning_finds_the_thresholds_that_separate_the_grades_and_splits_by_job():
+    from eval.tune import choose_thresholds, split_by_job
+    scores = [0.05, 0.1, 0.4, 0.45, 0.8, 0.9, 0.12, 0.42, 0.85]
+    grades = [0, 0, 1, 1, 2, 2, 0, 1, 2]
+    best = choose_thresholds(scores, grades)
+    assert best["qwk"] == 1.0 and 0.45 < best["met"] <= 0.8 and 0.1 < best["partial"] <= 0.4
+    rows = [{"job": j, "grade": 0} for j in "aabbccddee"]
+    dev, test = split_by_job(rows)
+    assert {r["job"] for r in test} == {"c"} and not {r["job"] for r in dev} & {r["job"] for r in test}  # never a pair in both
+    assert split_by_job([{"job": "x", "split": "test"}, {"job": "y", "split": "dev"}]) == ([{"job": "y", "split": "dev"}], [{"job": "x", "split": "test"}])

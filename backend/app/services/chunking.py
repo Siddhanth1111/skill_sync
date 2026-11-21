@@ -175,6 +175,31 @@ def _sentences(text: str, max_chars: int) -> List[str]:
     return out
 
 
+_CONNECTOR_END = re.compile(r"(?:[-–—,&/(]|\b(?:and|or|of|in|with|for|to|the|a|an|at|on))$", re.I)
+
+
+def _continues(prev: str, nxt: str) -> bool:
+    """True when `nxt` is the rest of the sentence that `prev` started (a line wrapped by the page width)."""
+    prev, nxt = prev.rstrip(), nxt.strip()
+    if not prev or not nxt or DATE_RANGE.search(nxt):
+        return False
+    if _CONNECTOR_END.search(prev) or nxt[:1].islower() or nxt[:1] in ")],;.":
+        return True
+    return len(prev) >= 70 and not re.search(r"[.!?:;]$", prev)  # a long line that stops without ending
+
+
+def join_wrapped(lines: List[str]) -> List[str]:
+    """Join wrapped continuation lines so a unit is a whole sentence, not half of one ('B.Tech -' + 'Computer
+    Science' becomes one line)."""
+    out: List[str] = []
+    for line in lines:
+        if out and not BULLET.match(line) and _continues(out[-1], line):
+            out[-1] = out[-1].rstrip() + (" " if not out[-1].rstrip().endswith(("-", "–", "—", "/", "(")) else " ") + line.strip()
+        else:
+            out.append(line)
+    return out
+
+
 def _is_contact(line: str) -> bool:
     return bool(CONTACT.search(line))
 
@@ -194,8 +219,8 @@ def _entries(body: str) -> List[Tuple[str, List[str]]]:
             continue
         if bullets and not DATE_RANGE.search(line):
             last = bullets[-1]
-            if not re.search(r"[.!?:]$", last) or line[:1].islower():
-                bullets[-1] = last + "\n" + line.strip()  # a wrapped bullet
+            if _continues(last, line):
+                bullets[-1] = last + " " + line.strip()  # a wrapped bullet becomes one sentence
                 continue
         if bullets:  # a new header starts: close the previous entry
             entries.append((head, bullets))
@@ -233,7 +258,7 @@ def chunk_resume(text: str, max_chars: int = 500) -> List[Chunk]:
                 elif header:  # a role with no bullets: its header line is the evidence
                     add(section, header, label, s, e)
             continue
-        for raw in body.split("\n"):
+        for raw in join_wrapped([l for l in body.split("\n") if l.strip()]):
             line = BULLET.sub("", raw, count=1).strip()
             if not line or _is_contact(line):
                 continue

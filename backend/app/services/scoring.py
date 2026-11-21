@@ -38,6 +38,16 @@ FIELD_WORDS = {
 }
 
 
+# Where evidence comes from matters: work and project text beats a summary line, which beats a bare skills list.
+SECTION_RANK = {"experience": 3, "projects": 3, "certifications": 2, "education": 2, "achievements": 2,
+                "summary": 1, "header": 1, "skills": 0}
+GENERIC_SECTIONS = ("summary", "header")  # one generic line must not be the proof for several requirements
+
+
+def reuse_limit(section: str, settings: Settings) -> int:
+    return 1 if section in GENERIC_SECTIONS else settings.hub_max_reuse
+
+
 @dataclass
 class ReqView:
     id: int
@@ -123,6 +133,12 @@ def best_sentence(unit: ChunkView, terms: Sequence[str]) -> str:
     return max(parts, key=lambda p: (len(tokens(p) & want), -parts.index(p)))
 
 
+def _display_rr(cand: Tuple[Retrieved, float]) -> float:
+    """Reranker score used only to pick which passage to show: generic summary lines are discounted."""
+    rt, rr = cand
+    return rr * (0.75 if rt.chunk.section in GENERIC_SECTIONS else 1.0)
+
+
 def score_skill(req: ReqView, cands: List[Tuple[Retrieved, float]], settings: Settings) -> Tuple[float, Optional[int], dict]:
     """Evidence-first skill score. Returns (score, index into cands of the unit to show, trace)."""
     best_rr = max((rr for _, rr in cands), default=0.0)
@@ -132,9 +148,10 @@ def score_skill(req: ReqView, cands: List[Tuple[Retrieved, float]], settings: Se
         return 0.0, None, trace
     if not skills:  # a concept the ontology does not know: the reranker's judgement is all there is
         trace["rule"] = "rerank_only"
-        top = max(range(len(cands)), key=lambda i: (cands[i][1], -i))
+        top = max(range(len(cands)), key=lambda i: (_display_rr(cands[i]), -i))
         return best_rr, top, trace
     per, show = [], []
+    trace["parts"] = {}
     for skill in skills:
         hit, related, technique = None, False, None
         for i, (rt, rr) in enumerate(cands):
@@ -143,7 +160,7 @@ def score_skill(req: ReqView, cands: List[Tuple[Retrieved, float]], settings: Se
                 technique = i
             if m in ("direct", "implied"):
                 listed = rt.chunk.section == "skills"
-                key = (0 if listed else 1, rr)  # a hit in running text beats a bare list entry
+                key = (SECTION_RANK.get(rt.chunk.section, 2), rr)  # work text beats a summary line beats a bare list
                 if hit is None or key > hit[0]:
                     hit = (key, i, listed)
             elif m == "related":
@@ -152,23 +169,36 @@ def score_skill(req: ReqView, cands: List[Tuple[Retrieved, float]], settings: Se
             s = settings.skill_listed_score if hit[2] else settings.skill_present_score
             show.append((hit[0], hit[1]))
             trace["skills"][skill] = "listed" if hit[2] else "evidence"
+            trace["parts"][skill] = {"status": "listed" if hit[2] else "found",
+                                     "text": best_sentence(cands[hit[1]][0].chunk, [skill])[:220]}
         elif technique is not None:
             s = max(min(best_rr, settings.skill_absent_cap), settings.skill_technique_score)
             show.append(((0, cands[technique][1]), technique))
             trace["skills"][skill] = "technique_only"
+            trace["parts"][skill] = {"status": "technique", "text": best_sentence(cands[technique][0].chunk, [skill])[:220]}
         elif related:
             s = max(min(best_rr, settings.skill_absent_cap), settings.skill_related_score)
             trace["skills"][skill] = "related_only"
+            trace["parts"][skill] = {"status": "related", "text": None}
         else:
             s = min(best_rr, settings.skill_absent_cap)
             trace["skills"][skill] = "not_found"
+            trace["parts"][skill] = {"status": "missing", "text": None}
         per.append(s)
     score = max(per) if req.mode == "any" else float(np.mean(per))
     if show:
         idx = max(show)[1]
     else:
-        idx = max(range(len(cands)), key=lambda i: (cands[i][1], -i))
+        idx = max(range(len(cands)), key=lambda i: (_display_rr(cands[i]), -i))
     return score, idx, trace
+
+
+def _enforce_minimum(score: float, found: float, need: float, trace: dict, settings: Settings) -> float:
+    """A stated minimum is a minimum: 2 years against '3 or more' is partial credit, never 'met', however close."""
+    if found + 1e-9 < need:
+        trace["below_minimum"] = True
+        return min(score, settings.met_threshold - 0.01)
+    return score
 
 
 def score_experience(req: ReqView, profile: dict, hit_units: int, settings: Settings) -> Tuple[float, dict]:
@@ -181,13 +211,13 @@ def score_experience(req: ReqView, profile: dict, hit_units: int, settings: Sett
         return -1.0, trace
     if not skills:
         trace["years_used"] = total
-        return min(1.0, total / need), trace
+        return _enforce_minimum(min(1.0, total / need), total, need, trace, settings), trace
     sy = profile.get("skill_years") or {}
     ys = [float(sy.get(canonical(s), 0.0)) for s in skills]
     used = max(ys) if req.mode == "any" else min(ys)
     trace.update(years_with_skill={canonical(s): y for s, y in zip(skills, ys)}, years_used=used)
     if used > 0:
-        return min(1.0, used / need), trace
+        return _enforce_minimum(min(1.0, used / need), used, need, trace, settings), trace
     if hit_units:  # skill is shown but no dated role links to it: years cannot be verified
         trace["note"] = "skill found, but no dated role mentions it; years not verifiable"
         return min(min(1.0, total / need), settings.skill_absent_cap), trace
@@ -271,7 +301,7 @@ def score_candidate(reqs: Sequence[ReqView], qvecs: np.ndarray, chunks: Sequence
             pool = range(len(cands))
             if r.kind == "experience":  # years are shown by a role entry, not by the summary line
                 pool = [k for k in pool if cands[k][0].chunk.section == "experience"] or pool
-            show = max(pool, key=lambda k: (cands[k][1], -k))
+            show = max(pool, key=lambda k: (_display_rr(cands[k]), -k))
         results[i] = {"score": sc, "show": show, "cands": cands, "trace": trace}
 
     # One evidence unit may back at most hub_max_reuse requirements; heavier requirements choose first (C5).
@@ -285,7 +315,7 @@ def score_candidate(reqs: Sequence[ReqView], qvecs: np.ndarray, chunks: Sequence
         skills = reqs[i].skills
         usable = [k for k in order if k == show or not skills or any(
             skill_match(_unit_text(cands[k][0].chunk), s) in ("direct", "implied") for s in skills)]
-        pick = next((k for k in usable if usage[cands[k][0].chunk.idx] < settings.hub_max_reuse), show)
+        pick = next((k for k in usable if usage[cands[k][0].chunk.idx] < reuse_limit(cands[k][0].chunk.section, settings)), show)
         res["show"] = pick
         usage[cands[pick][0].chunk.idx] += 1
 
@@ -314,11 +344,14 @@ def score_candidate(reqs: Sequence[ReqView], qvecs: np.ndarray, chunks: Sequence
         ent_v = entailment.get(i)
         sentence = sentences.get(i)
         # D5: weak evidence cannot make a requirement "met" unless the ontology finds the skill in that sentence.
-        if ent_v is not None and ent_v < settings.entailment_threshold and sc >= settings.met_threshold:
-            direct = any(skill_match(sentence or "", s) in ("direct", "implied") for s in r.skills)
-            if not direct:
-                sc = min(sc, settings.weak_evidence_cap)
-                trace["weak_evidence_cap"] = True
+        # One rule for warning and verdict: evidence is weak only when the model doubts it AND the ontology does not
+        # find the skill in the supporting sentence. Weak evidence cannot be "met", and only weak evidence is warned.
+        direct = any(skill_match(sentence or "", s) in ("direct", "implied") for s in r.skills)
+        weak = ent_v is not None and ent_v < settings.entailment_threshold and not direct
+        trace["weak"] = bool(weak)
+        if weak and sc >= settings.met_threshold:
+            sc = min(sc, settings.weak_evidence_cap)
+            trace["weak_evidence_cap"] = True
         status = status_of(sc, settings.met_threshold, settings.partial_threshold)
         if status == "not_met" and low_confidence:
             status = "not_verifiable"  # the resume was read poorly: absence cannot be trusted (D8)
@@ -326,13 +359,16 @@ def score_candidate(reqs: Sequence[ReqView], qvecs: np.ndarray, chunks: Sequence
                                "dense_rank": c.dense_rank, "bm25_rank": c.bm25_rank, "rerank": round(s, 3)}
                               for c, s in res["cands"]]
         trace["reuse"] = usage[rt.chunk.idx] if rt is not None else 0
-        hub = rt is not None and usage[rt.chunk.idx] > settings.hub_max_reuse
+        hub = rt is not None and usage[rt.chunk.idx] > reuse_limit(rt.chunk.section, settings)
+        # A passage is shown only as support. When nothing was found, the nearest passage is not evidence of anything.
+        supports = status in ("met", "partial")
         rows.append(ScoreRow(
             requirement_id=r.id, rerank_score=rerank_v, final_score=sc, status=status,
             chunk_id=rt.chunk.id if rt else None, similarity=rt.similarity if rt else None,
-            quote=rt.chunk.text if rt is not None and verified[i] else None,
-            section=rt.chunk.section if rt is not None and verified[i] else None,
-            entailment=ent_v, verified=bool(verified[i]), sentence=sentence if verified[i] else None, hub=hub,
+            quote=rt.chunk.text if rt is not None and verified[i] and supports else None,
+            section=rt.chunk.section if rt is not None and verified[i] and supports else None,
+            entailment=ent_v, verified=bool(verified[i] and supports), sentence=sentence if verified[i] and supports else None,
+            hub=hub and supports,
             trace=trace, pipeline_version=settings.pipeline_version))
     return rows
 

@@ -28,7 +28,7 @@ export default function JobAnalyticsTab() {
       {d.quality && d.quality.cells > 0 && (
         <Card><CardHeader title="Scoring quality on this job" description="Measured on these resumes. These are checks on the evidence, not accuracy against human judgement." />
           <dl className="grid grid-cols-2 gap-4 p-4 text-sm lg:grid-cols-4">
-            <div><dt className="text-xs text-muted-foreground">Quotes verified in the resume</dt><dd className="text-lg font-medium tabular-nums">{d.quality.verified_rate == null ? '-' : `${pct(d.quality.verified_rate)}%`}</dd></div>
+            <div><dt className="text-xs text-muted-foreground">Requirements with verified evidence</dt><dd className="text-lg font-medium tabular-nums">{d.quality.verified_rate == null ? '-' : `${pct(d.quality.verified_rate)}%`}</dd></div>
             <div><dt className="text-xs text-muted-foreground">Evidence reused too often</dt><dd className="text-lg font-medium tabular-nums">{d.quality.evidence_reuse_rate == null ? '-' : `${pct(d.quality.evidence_reuse_rate)}%`}</dd></div>
             <div><dt className="text-xs text-muted-foreground">Weak evidence</dt><dd className="text-lg font-medium tabular-nums">{d.quality.weak_evidence_rate == null ? '-' : `${pct(d.quality.weak_evidence_rate)}%`}</dd></div>
             <div><dt className="text-xs text-muted-foreground">Not verifiable (poor scan)</dt><dd className="text-lg font-medium tabular-nums">{d.quality.unverifiable_rate == null ? '-' : `${pct(d.quality.unverifiable_rate)}%`}</dd></div>
